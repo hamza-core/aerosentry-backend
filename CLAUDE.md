@@ -34,10 +34,10 @@ machine or LAN.
 
 ## Tech stack
 ASP.NET Core Web API (.NET [version]), PostgreSQL, EF Core, JWT auth, SignalR for
-real-time alerts, Swagger/OpenAPI.
+real-time alerts, OpenAPI + Scalar (browser API page; Postman for endpoint testing).
 
 ## Features, in build order (draft, I will confirm and change this list)
-0. Setup: repo, database, Swagger, CI, base project structure
+0. Setup: repo, database, Scalar, CI, base project structure
 1. Auth and roles: signup/login, JWT, roles (for example owner/admin and guard)
 2. Properties: a user can own several properties/locations
 3. Cameras: add/edit/remove cameras per property, and which grid cells each covers
@@ -65,7 +65,7 @@ or remove tables only when a feature needs them, and explain why.
    Do not edit files yourself unless I say "you do this one".
 4. After I paste it, explain it: what each important line does, and where it sits in
    the request flow (Controller -> Service -> Data -> Database).
-5. Every step ends with a way to verify it (run it, call it in Swagger, query the DB)
+5. Every step ends with a way to verify it (run it, call it in Postman or Scalar, query the DB)
    and one short question to check I understood. Do not move on until I answer.
 6. Introduce every NuGet package only when needed. Explain what it is, why we chose it,
    and what breaks without it.
