@@ -28,9 +28,16 @@ public class GuardsController : ControllerBase
     }
 
     [HttpGet]
-    public async Task<IActionResult> List()
+    public async Task<IActionResult> List(string? status = null)
     {
-        return Ok(await _guards.ListAsync());
+        if (status is not null &&
+            !status.Equals("Active", StringComparison.OrdinalIgnoreCase) &&
+            !status.Equals("Suspended", StringComparison.OrdinalIgnoreCase))
+        {
+            return Problem(statusCode: 400, title: "status must be Active or Suspended");
+        }
+
+        return Ok(await _guards.ListAsync(status));
     }
 
     [HttpPatch("{id:guid}/status")]
@@ -42,4 +49,16 @@ public class GuardsController : ControllerBase
 
         return Ok(result);
     }
+
+
+    [HttpDelete("{id:guid}")]
+    public async Task<IActionResult> Delete(Guid id)
+    {
+        var deleted = await _guards.DeleteAsync(id);
+        if (!deleted)
+            return Problem(statusCode: 404, title: "Guard not found");
+
+        return NoContent();
+    }
 }
+

@@ -47,6 +47,7 @@ public class AuthService
             Id = user.Id,
             FullName = user.FullName,
             Email = user.Email,
+            PhoneNumber = user.PhoneNumber,
             Role = user.Role
         };
     }
@@ -110,6 +111,7 @@ public async Task<LoginResult> LoginAsync(LoginRequest request)
                 Id = user.Id,
                 FullName = user.FullName,
                 Email = user.Email,
+                PhoneNumber = user.PhoneNumber,
                 Role = user.Role
             }
         }
@@ -127,6 +129,7 @@ public async Task<UserResponse?> GetUserAsync(Guid id)
         Id = user.Id,
         FullName = user.FullName,
         Email = user.Email,
+        PhoneNumber = user.PhoneNumber,
         Role = user.Role
     };
 }

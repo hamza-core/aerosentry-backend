@@ -46,12 +46,17 @@ public class GuardService
         };
     }
 
-    public async Task<List<GuardResponse>> ListAsync()
+    public async Task<List<GuardResponse>> ListAsync(string? status = null)
     {
-        var guards = await _db.Users
-            .Where(u => u.Role == "Guard")
-            .OrderBy(u => u.FullName)
-            .ToListAsync();
+        var query = _db.Users.Where(u => u.Role == "Guard");
+
+        if (status is not null)
+        {
+            var active = status.Equals("Active", StringComparison.OrdinalIgnoreCase);
+            query = query.Where(u => u.IsActive == active);   
+        }
+
+        var guards = await query.OrderBy(u => u.FullName).ToListAsync();
 
         return guards.Select(ToResponse).ToList();
     }
@@ -67,6 +72,18 @@ public class GuardService
         await _db.SaveChangesAsync();
 
         return ToResponse(guard);
+    }
+    public async Task<bool> DeleteAsync(Guid id)
+    {
+        var guard = await _db.Users.FirstOrDefaultAsync(u=>u.Id == id && u.Role == "Guard");
+        
+        if(guard is null)
+        {
+            return false;
+        }
+        _db.Users.Remove(guard);
+       await _db.SaveChangesAsync();
+       return true;
     }
 
     private static GuardResponse ToResponse(User u) => new()
