@@ -24,4 +24,23 @@ public class AuthController : ControllerBase
 
         return StatusCode(StatusCodes.Status201Created, result);
     }
+
+    [HttpPost("login")]
+public async Task<IActionResult> Login(LoginRequest request)
+{
+    var user = await _auth.ValidateCredentialsAsync(request);
+    if (user is null)
+        return Problem(statusCode: 401, title: "Invalid email or password");
+
+    if (!user.IsActive)
+        return Problem(statusCode: 403, title: "Account suspended");
+
+    return Ok(new UserResponse
+    {
+        Id = user.Id,
+        FullName = user.FullName,
+        Email = user.Email,
+        Role = user.Role
+    });
+}
 }

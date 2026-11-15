@@ -44,4 +44,25 @@ public class AuthService
             Role = user.Role
         };
     }
+
+
+    public async Task<User?> ValidateCredentialsAsync(LoginRequest request)
+{
+
+        var email  = request.Email.Trim().ToLowerInvariant();
+
+        var user = await _db.Users.FirstOrDefaultAsync(u=>u.Email == email);
+
+        if(user is null)
+        {
+            return null;
+        }
+
+        var result = _hasher.VerifyHashedPassword(user,user.PasswordHash, request.Password);
+
+        return result == PasswordVerificationResult.Failed ? null : user;
+}
+
+
+
 }
