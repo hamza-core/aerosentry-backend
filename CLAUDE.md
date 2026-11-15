@@ -33,7 +33,7 @@ staging server is fine during development, but the demo setup must run on a loca
 machine or LAN.
 
 ## Tech stack
-ASP.NET Core Web API (.NET [version]), PostgreSQL, EF Core, JWT auth, SignalR for
+ASP.NET Core Web API (.NET 11), SQL Server 2022 (Docker), EF Core, JWT auth, SignalR for
 real-time alerts, OpenAPI + Scalar (browser API page; Postman for endpoint testing).
 
 ## Features, in build order (draft, I will confirm and change this list)
