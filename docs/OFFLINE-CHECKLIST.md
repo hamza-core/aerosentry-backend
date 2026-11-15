@@ -61,3 +61,4 @@ Non-secret, in `appsettings.json`: `Jwt:Issuer`, `Jwt:Audience`, `Jwt:ExpiryMinu
 
 ## Migrations applied so far
 - `initialUserMigration`: creates `Users` (unique index on `Email`).
+- `PHonenumberAdditionCheckMigration`: adds the optional `PhoneNumber` column to `Users`.

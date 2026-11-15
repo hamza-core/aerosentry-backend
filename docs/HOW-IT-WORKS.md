@@ -58,6 +58,14 @@ with 401. Only the server knows the key, so only the server can create valid tok
 - Services are Scoped because they depend on the Scoped `AppDbContext`.
 - DTOs stop overposting (a client sending `role`) and keep `PasswordHash` out of responses.
 
+### Guard management (Admin only)
+- `GET /guards?status=` builds the query with `Where` on an `IQueryable`, so SQL Server does the
+  filtering. Only `ToListAsync()` runs it.
+- `PATCH /guards/{id}/status` flips `IsActive`. The `Role == "Guard"` filter means an Admin can
+  never be suspended or deleted through these endpoints.
+- `DELETE /guards/{id}` returns 204 with no body. A deleted user's old token stops working
+  because of the `OnTokenValidated` database check.
+
 ### Not done yet
 - Password reset by email (needs a mail server, so it does not fit the offline rule).
 - Rate limiting on login.

@@ -16,7 +16,7 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261115204200_PHonenumberAdditionCheckMigration";
+    public override string LastMigrationId => "20261115214843_AddPropertiesAndGuardOwnership";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -26,6 +26,59 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
             .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
         SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.Property", b =>
+            {
+                b.Property<Guid>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<string>("Address")
+                    .IsRequired()
+                    .HasMaxLength(300)
+                    .HasColumnType("nvarchar(300)");
+
+                b.Property<DateTime>("CreatedAtUtc")
+                    .HasColumnType("datetime2");
+
+                b.Property<double?>("Latitude")
+                    .HasColumnType("float");
+
+                b.Property<double?>("Longitude")
+                    .HasColumnType("float");
+
+                b.Property<string>("Name")
+                    .IsRequired()
+                    .HasMaxLength(200)
+                    .HasColumnType("nvarchar(200)");
+
+                b.Property<Guid>("OwnerAdminId")
+                    .HasColumnType("uniqueidentifier");
+
+                b.HasKey("Id");
+
+                b.HasIndex("OwnerAdminId");
+
+                b.ToTable("Properties");
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.PropertyGuard", b =>
+            {
+                b.Property<Guid>("PropertyId")
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<Guid>("GuardId")
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<DateTime>("AssignedAtUtc")
+                    .HasColumnType("datetime2");
+
+                b.HasKey("PropertyId", "GuardId");
+
+                b.HasIndex("GuardId");
+
+                b.ToTable("PropertyGuards");
+            });
 
         modelBuilder.Entity("AeroSentry.Api.Data.Entities.User", b =>
             {
@@ -48,6 +101,9 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                 b.Property<bool>("IsActive")
                     .HasColumnType("bit");
 
+                b.Property<Guid?>("OwnerAdminId")
+                    .HasColumnType("uniqueidentifier");
+
                 b.Property<string>("PasswordHash")
                     .IsRequired()
                     .HasColumnType("nvarchar(max)");
@@ -65,7 +121,52 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("Email")
                     .IsUnique();
 
+                b.HasIndex("OwnerAdminId");
+
                 b.ToTable("Users");
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.Property", b =>
+            {
+                b.HasOne("AeroSentry.Api.Data.Entities.User", "OwnerAdmin")
+                    .WithMany()
+                    .HasForeignKey("OwnerAdminId")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired();
+
+                b.Navigation("OwnerAdmin");
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.PropertyGuard", b =>
+            {
+                b.HasOne("AeroSentry.Api.Data.Entities.User", "Guard")
+                    .WithMany()
+                    .HasForeignKey("GuardId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                b.HasOne("AeroSentry.Api.Data.Entities.Property", "Property")
+                    .WithMany("PropertyGuards")
+                    .HasForeignKey("PropertyId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                b.Navigation("Guard");
+
+                b.Navigation("Property");
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.User", b =>
+            {
+                b.HasOne("AeroSentry.Api.Data.Entities.User", null)
+                    .WithMany()
+                    .HasForeignKey("OwnerAdminId")
+                    .OnDelete(DeleteBehavior.Restrict);
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.Property", b =>
+            {
+                b.Navigation("PropertyGuards");
             });
 #pragma warning restore 612, 618
     }
