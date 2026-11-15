@@ -6,162 +6,92 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AeroSentry.Api.Services;
 
-// =====================================================================
-// GuardService  (the "Service" layer)
-//
-// WHAT IT DOES: create, list, suspend and delete guard accounts.
-//               A guard is a row in the Users table with Role = "Guard".
-//
-// REQUEST FLOW: GuardsController -> GuardService -> AppDbContext -> SQL Server
-//
-// OWNERSHIP RULE: every method receives adminId (the logged-in admin) and only
-//               touches guards where OwnerAdminId == adminId. So Admin A can never
-//               see, suspend or delete Admin B's guards.
-//
-// IF THE TEACHER ASKS YOU TO...
-//   - add a field to a guard: Data/Entities/User.cs, DTOs/GuardResponse.cs,
-//     MakeGuardResponse() below, then migrations add + database update
-//   - add another filter to the list: add another "if" with a .Where(...) in ListAsync
-// =====================================================================
+// Every method takes adminId (the caller's id from the token) and only touches
+// guards whose OwnerAdminId equals it. One admin can never see or change another admin's guards.
 public class GuardService
 {
     private readonly AppDbContext _db;
-    private readonly PasswordHasher<User> _hasher = new PasswordHasher<User>();   // hashes passwords
+    private readonly PasswordHasher<User> _hasher = new();
 
     public GuardService(AppDbContext db)
     {
         _db = db;
     }
 
-    // ------------------------------------------------------------------
-    // CREATE a guard.  Returns null if the email is already used.
-    // ------------------------------------------------------------------
+    // Returns null when the email is already taken.
     public async Task<GuardResponse?> CreateAsync(Guid adminId, RegisterRequest request)
     {
-        // Emails are stored in lower case so "A@x.com" and "a@x.com" are the same.
-        string email = request.Email.Trim().ToLowerInvariant();
+        var email = request.Email.Trim().ToLowerInvariant();
 
-        // Is there already a user with this email?
-        bool emailTaken = await _db.Users.AnyAsync(u => u.Email == email);
-        if (emailTaken)
-        {
+        if (await _db.Users.AnyAsync(u => u.Email == email))
             return null;
-        }
 
-        User guard = new User();
-        guard.Id = Guid.NewGuid();
-        guard.FullName = request.FullName.Trim();
-        guard.Email = email;
-        guard.PhoneNumber = request.PhoneNumber;
-        guard.Role = "Guard";             // the server decides the role, never the client
-        guard.OwnerAdminId = adminId;     // this guard belongs to the admin who created him
-
-        // Never store the real password: store its hash.
+        var guard = new User
+        {
+            Id = Guid.NewGuid(),
+            FullName = request.FullName.Trim(),
+            Email = email,
+            PhoneNumber = request.PhoneNumber,
+            Role = "Guard",
+            OwnerAdminId = adminId
+        };
         guard.PasswordHash = _hasher.HashPassword(guard, request.Password);
 
         _db.Users.Add(guard);
-        await _db.SaveChangesAsync();     // INSERT
+        await _db.SaveChangesAsync();
 
-        return MakeGuardResponse(guard);
+        return ToResponse(guard);
     }
 
-    // ------------------------------------------------------------------
-    // LIST this admin's guards.  status = null (everyone), "Active" or "Suspended".
-    // The controller already checked that status is one of those values.
-    // ------------------------------------------------------------------
+    // status: null = everyone, "Active" or "Suspended" = filter (validated in the controller).
     public async Task<List<GuardResponse>> ListAsync(Guid adminId, string? status = null)
     {
-        // Start with: all guards owned by this admin.
-        IQueryable<User> query = _db.Users
-            .Where(u => u.Role == "Guard" && u.OwnerAdminId == adminId);
+        var query = _db.Users.Where(u => u.Role == "Guard" && u.OwnerAdminId == adminId);
 
-        // Add a filter only if the client asked for one.
-        // Nothing has run yet: the filters are added to the SQL query, which is
-        // executed once, at ToListAsync().
-        if (status != null)
+        if (status is not null)
         {
-            bool wantActive = status.Equals("Active", StringComparison.OrdinalIgnoreCase);
-            query = query.Where(u => u.IsActive == wantActive);
+            var active = status.Equals("Active", StringComparison.OrdinalIgnoreCase);
+            query = query.Where(u => u.IsActive == active);   // runs in SQL, not in memory
         }
 
-        List<User> guards = await query.OrderBy(u => u.FullName).ToListAsync();
+        var guards = await query.OrderBy(u => u.FullName).ToListAsync();
 
-        List<GuardResponse> result = new List<GuardResponse>();
-        foreach (User guard in guards)
-        {
-            result.Add(MakeGuardResponse(guard));
-        }
-        return result;
+        return guards.Select(ToResponse).ToList();
     }
 
-    // ------------------------------------------------------------------
-    // SUSPEND or ACTIVATE a guard.  Returns null if this admin has no such guard.
-    // ------------------------------------------------------------------
+    // Returns null when this admin has no guard with that id.
     public async Task<GuardResponse?> SetStatusAsync(Guid adminId, Guid id, string status)
     {
-        User? guard = await _db.Users.FirstOrDefaultAsync(
+        var guard = await _db.Users.FirstOrDefaultAsync(
             u => u.Id == id && u.Role == "Guard" && u.OwnerAdminId == adminId);
-
-        if (guard == null)
-        {
+        if (guard is null)
             return null;
-        }
 
-        // IsActive = true means "Active", false means "Suspended".
-        if (status == "Active")
-        {
-            guard.IsActive = true;
-        }
-        else
-        {
-            guard.IsActive = false;
-        }
+        guard.IsActive = status == "Active";
+        await _db.SaveChangesAsync();
 
-        await _db.SaveChangesAsync();   // UPDATE
-
-        return MakeGuardResponse(guard);
+        return ToResponse(guard);
     }
 
-    // ------------------------------------------------------------------
-    // DELETE a guard.  true = deleted, false = not found.
-    // His property assignments are removed automatically (cascade).
-    // ------------------------------------------------------------------
     public async Task<bool> DeleteAsync(Guid adminId, Guid id)
     {
-        User? guard = await _db.Users.FirstOrDefaultAsync(
+        var guard = await _db.Users.FirstOrDefaultAsync(
             u => u.Id == id && u.Role == "Guard" && u.OwnerAdminId == adminId);
-
-        if (guard == null)
-        {
+        if (guard is null)
             return false;
-        }
 
-        _db.Users.Remove(guard);
-        await _db.SaveChangesAsync();   // DELETE
+        _db.Users.Remove(guard);   // its PropertyGuard rows are removed by the cascade rule
+        await _db.SaveChangesAsync();
         return true;
     }
 
-    // ------------------------------------------------------------------
-    // Copy a User (database shape) into a GuardResponse (what the client sees).
-    // "public static" because PropertyService also uses it.
-    // Note: PasswordHash is NOT copied, so it can never leak.
-    // ------------------------------------------------------------------
-    public static GuardResponse MakeGuardResponse(User user)
+    // public so PropertyService can reuse the same mapping.
+    public static GuardResponse ToResponse(User u) => new()
     {
-        GuardResponse response = new GuardResponse();
-        response.Id = user.Id;
-        response.FullName = user.FullName;
-        response.Email = user.Email;
-        response.Role = user.Role;
-
-        if (user.IsActive)
-        {
-            response.Status = "Active";
-        }
-        else
-        {
-            response.Status = "Suspended";
-        }
-        return response;
-    }
+        Id = u.Id,
+        FullName = u.FullName,
+        Email = u.Email,
+        Role = u.Role,
+        Status = u.IsActive ? "Active" : "Suspended"
+    };
 }
