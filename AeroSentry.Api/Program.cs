@@ -34,6 +34,21 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
             ClockSkew = TimeSpan.Zero,
             RoleClaimType = "role"
         };
+
+        options.Events = new JwtBearerEvents
+        {
+            OnTokenValidated = async context =>
+            {
+                var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
+                var sub = context.Principal?.FindFirst("sub")?.Value;
+
+                if (!Guid.TryParse(sub, out var id) ||
+                    !await db.Users.AnyAsync(u => u.Id == id && u.IsActive))
+                {
+                    context.Fail("User is inactive or no longer exists.");
+                }
+            }
+        };
     });
 
 

@@ -26,4 +26,20 @@ public class GuardsController : ControllerBase
 
         return StatusCode(StatusCodes.Status201Created, result);
     }
+
+    [HttpGet]
+    public async Task<IActionResult> List()
+    {
+        return Ok(await _guards.ListAsync());
+    }
+
+    [HttpPatch("{id:guid}/status")]
+    public async Task<IActionResult> SetStatus(Guid id, UpdateGuardStatusRequest request)
+    {
+        var result = await _guards.SetStatusAsync(id, request.Status);
+        if (result is null)
+            return Problem(statusCode: 404, title: "Guard not found");
+
+        return Ok(result);
+    }
 }

@@ -45,4 +45,36 @@ public class GuardService
             Status = guard.IsActive ? "Active" : "Suspended"
         };
     }
+
+    public async Task<List<GuardResponse>> ListAsync()
+    {
+        var guards = await _db.Users
+            .Where(u => u.Role == "Guard")
+            .OrderBy(u => u.FullName)
+            .ToListAsync();
+
+        return guards.Select(ToResponse).ToList();
+    }
+
+    // Returns null when no guard has that id.
+    public async Task<GuardResponse?> SetStatusAsync(Guid id, string status)
+    {
+        var guard = await _db.Users.FirstOrDefaultAsync(u => u.Id == id && u.Role == "Guard");
+        if (guard is null)
+            return null;
+
+        guard.IsActive = status == "Active";
+        await _db.SaveChangesAsync();
+
+        return ToResponse(guard);
+    }
+
+    private static GuardResponse ToResponse(User u) => new()
+    {
+        Id = u.Id,
+        FullName = u.FullName,
+        Email = u.Email,
+        Role = u.Role,
+        Status = u.IsActive ? "Active" : "Suspended"
+    };
 }
