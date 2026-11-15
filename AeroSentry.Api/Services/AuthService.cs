@@ -116,4 +116,19 @@ public async Task<LoginResult> LoginAsync(LoginRequest request)
     };
 }
 
+public async Task<UserResponse?> GetUserAsync(Guid id)
+{
+    var user = await _db.Users.FindAsync(id);
+    if (user is null)
+        return null;
+
+    return new UserResponse
+    {
+        Id = user.Id,
+        FullName = user.FullName,
+        Email = user.Email,
+        Role = user.Role
+    };
+}
+
 }
