@@ -3,7 +3,10 @@ using AeroSentry.Api.Data.Entities;
 using AeroSentry.Api.DTOs;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
-
+using System.Security.Claims;
+using System.Text;
+using Microsoft.IdentityModel.JsonWebTokens;
+using Microsoft.IdentityModel.Tokens;
 namespace AeroSentry.Api.Services;
 
 public class AuthService
@@ -11,9 +14,12 @@ public class AuthService
     private readonly AppDbContext _db;
     private readonly PasswordHasher<User> _hasher = new();
 
-    public AuthService(AppDbContext db)
+    private readonly IConfiguration _config;
+
+    public AuthService(AppDbContext db, IConfiguration config)
     {
         _db = db;
+        _config = config;
     }
 
     // Returns null when the email is already taken.
@@ -63,6 +69,51 @@ public class AuthService
         return result == PasswordVerificationResult.Failed ? null : user;
 }
 
+public async Task<LoginResult> LoginAsync(LoginRequest request)
+{
+    var user = await ValidateCredentialsAsync(request);
+    if (user is null)
+        return new LoginResult { Status = LoginStatus.InvalidCredentials };
 
+    if (!user.IsActive)
+        return new LoginResult { Status = LoginStatus.Suspended };
+
+    var expires = DateTime.UtcNow.AddMinutes(int.Parse(_config["Jwt:ExpiryMinutes"]!));
+
+    var descriptor = new SecurityTokenDescriptor
+    {
+        Subject = new ClaimsIdentity(new[]
+        {
+            new Claim(JwtRegisteredClaimNames.Sub, user.Id.ToString()),
+            new Claim(JwtRegisteredClaimNames.Email, user.Email),
+            new Claim("role", user.Role)
+        }),
+        Issuer = _config["Jwt:Issuer"],
+        Audience = _config["Jwt:Audience"],
+        Expires = expires,
+        SigningCredentials = new SigningCredentials(
+            new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_config["Jwt:Key"]!)),
+            SecurityAlgorithms.HmacSha256)
+    };
+
+    var token = new JsonWebTokenHandler().CreateToken(descriptor);
+
+    return new LoginResult
+    {
+        Status = LoginStatus.Success,
+        Response = new LoginResponse
+        {
+            AccessToken = token,
+            ExpiresAtUtc = expires,
+            User = new UserResponse
+            {
+                Id = user.Id,
+                FullName = user.FullName,
+                Email = user.Email,
+                Role = user.Role
+            }
+        }
+    };
+}
 
 }
