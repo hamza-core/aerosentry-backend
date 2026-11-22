@@ -54,8 +54,9 @@ public class WorkerController : ApiControllerBase
         var expected = _config["Worker:ApiKey"];
         var given = Request.Headers["X-Worker-Key"].ToString();
 
-        // No key configured = the worker endpoints are closed to everybody.
-        if (string.IsNullOrEmpty(expected) || given.Length == 0)
+        // No key configured (or the example's "CHANGE-ME" placeholder still in place) = the worker endpoints are closed to
+        // everybody. A placeholder must never work as a real key.
+        if (string.IsNullOrEmpty(expected) || expected.StartsWith("CHANGE-ME") || given.Length == 0)
             return false;
 
         // Fixed-time comparison: it takes the same time whether the first or the last character differs.
