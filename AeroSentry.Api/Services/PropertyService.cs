@@ -38,12 +38,13 @@ public class PropertyService
     }
 
     // Admin: properties I own. Guard: properties I am assigned to.
-    public async Task<List<PropertyResponse>> ListAsync(Guid userId, string role)
+    public async Task<List<PropertyResponse>> ListAsync(Guid userId, string role , string? search = "")
     {
         var properties = await VisibleTo(userId, role)
             .OrderBy(p => p.Name)
             .ToListAsync();
-
+        if(!string.IsNullOrEmpty(search))
+            properties = properties.Where(p=>p.Name.ToLower().Contains(search.Trim().ToLower()) || p.Address.ToLower().Contains( search.Trim().ToLower())).ToList();
         return properties.Select(p=>ToResponse(p,role)).ToList();
     }
 
