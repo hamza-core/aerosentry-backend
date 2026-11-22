@@ -16,7 +16,7 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261122103523_AddWallCellRoutes";
+    public override string LastMigrationId => "20261122104233_AddDetectionEvents";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -79,6 +79,49 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                     .IsUnique();
 
                 b.ToTable("Cameras");
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.DetectionEvent", b =>
+            {
+                b.Property<Guid>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<Guid?>("CellId")
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<string>("CellLabel")
+                    .HasMaxLength(50)
+                    .HasColumnType("nvarchar(50)");
+
+                b.Property<DateTime>("DetectedAtUtc")
+                    .HasColumnType("datetime2");
+
+                b.Property<int>("FrameNumber")
+                    .HasColumnType("int");
+
+                b.Property<string>("MlSessionId")
+                    .IsRequired()
+                    .HasMaxLength(50)
+                    .HasColumnType("nvarchar(50)");
+
+                b.Property<double>("Probability")
+                    .HasColumnType("float");
+
+                b.Property<double>("Threshold")
+                    .HasColumnType("float");
+
+                b.Property<double>("TimestampSeconds")
+                    .HasColumnType("float");
+
+                b.Property<Guid>("WallId")
+                    .HasColumnType("uniqueidentifier");
+
+                b.HasKey("Id");
+
+                b.HasIndex("WallId", "DetectedAtUtc");
+
+                b.ToTable("DetectionEvents");
             });
 
         modelBuilder.Entity("AeroSentry.Api.Data.Entities.LaserGrid", b =>
@@ -342,6 +385,17 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                     .IsRequired();
 
                 b.Navigation("Property");
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.DetectionEvent", b =>
+            {
+                b.HasOne("AeroSentry.Api.Data.Entities.Wall", "Wall")
+                    .WithMany()
+                    .HasForeignKey("WallId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                b.Navigation("Wall");
             });
 
         modelBuilder.Entity("AeroSentry.Api.Data.Entities.LaserGrid", b =>

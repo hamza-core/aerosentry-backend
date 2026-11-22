@@ -22,6 +22,15 @@ builder.Services.AddScoped<ILaserGridService, LaserGridService>();
 builder.Services.AddScoped<IWallService, WallService>();
 builder.Services.AddScoped<IWallCellService, WallCellService>();
 
+// The ML service is a separate local program (port 8010). One typed HttpClient talks to it.
+builder.Services.AddHttpClient<IMlClient, MlClient>(client =>
+{
+    client.BaseAddress = new Uri(builder.Configuration["Ml:BaseUrl"] ?? "http://localhost:8010");
+    client.Timeout = TimeSpan.FromSeconds(15);
+});
+builder.Services.AddSingleton<DetectionSessions>();   // one shared wall -> ML session map
+builder.Services.AddScoped<IDetectionService, DetectionService>();
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
