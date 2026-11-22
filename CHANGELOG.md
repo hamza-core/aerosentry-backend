@@ -6,6 +6,9 @@
 - Every endpoint is now `/api/v1/<feature>/<action>` (e.g. `cameras/create`, `walls/save-cells`); ids moved from the path to the query string (`?propertyId=&cameraId=`). Full list in `docs/API.md`.
 - Guards endpoints from Feature 1 changed accordingly: `guards/create`, `guards/list`, `guards/set-status`, `guards/delete`. Auth endpoints did not change.
 
+### Feature 8: Drone (planned, NOT implemented)
+- Placeholder `drones/...` functions answer 501 so the apps can prepare. Open decisions and the full list of unfinished work: `docs/FUTURE-WORK.md`.
+
 ### Feature 7: Alert actions
 - `POST alerts/acknowledge`, `alerts/mark-false-alarm`, `alerts/close`, `alerts/escalate` (admin only) and `GET alerts/list-actions`.
 - Rules in `AlertTransitions` (FalseAlarm and Closed are final); status changes are compare-and-set, so simultaneous presses give one 200 and 409s.
