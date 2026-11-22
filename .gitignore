@@ -488,3 +488,6 @@ $RECYCLE.BIN/
 
 # Real MediaMTX config: holds camera passwords (the example file is committed)
 media/mediamtx.yml
+
+# Secrets (database password, JWT key, worker key). The example file next to it is committed.
+AeroSentry.Api/appsettings.Local.json

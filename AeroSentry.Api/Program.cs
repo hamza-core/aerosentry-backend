@@ -9,6 +9,25 @@ using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.IdentityModel.Tokens;
 var builder = WebApplication.CreateBuilder(args);
 
+// Secrets (database password, JWT key, worker key) live in appsettings.Local.json. It is NOT in git: copy
+// appsettings.Local.example.json to appsettings.Local.json and fill it in. It is loaded after appsettings.json, and
+// environment variables and command-line values are added again after it, so they still win over it.
+builder.Configuration.AddJsonFile("appsettings.Local.json", optional: true, reloadOnChange: true);
+builder.Configuration.AddEnvironmentVariables();
+builder.Configuration.AddCommandLine(args);
+
+// Stop at once, with a clear message, when a required secret is missing, instead of crashing deep inside a request.
+// (A value still starting with "CHANGE-ME" is the example's placeholder: it counts as missing.)
+bool NotSet(string? value) => string.IsNullOrWhiteSpace(value) || value.StartsWith("CHANGE-ME");
+var problems = new List<string>();
+if (NotSet(builder.Configuration["ConnectionStrings:DefaultConnection"])) problems.Add("ConnectionStrings:DefaultConnection (the SQL Server connection string)");
+if (NotSet(builder.Configuration["Jwt:Key"])) problems.Add("Jwt:Key (a long random text used to sign login tokens)");
+else if (builder.Configuration["Jwt:Key"]!.Length < 32) problems.Add("Jwt:Key is too short: it must be at least 32 characters");
+if (problems.Count > 0)
+    throw new InvalidOperationException(
+        "Missing or invalid settings:\n  - " + string.Join("\n  - ", problems) +
+        "\nCopy AeroSentry.Api/appsettings.Local.example.json to appsettings.Local.json and fill it in (it is not committed to git).");
+
 // Add services to the container.
 
 builder.Services.AddControllers();
