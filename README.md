@@ -49,7 +49,7 @@ The optional parts (ML service, face service, media server, worker) and the full
 
 ## Repository layout
 ```
-AeroSentry.Api/        the backend (Controllers, Services, DTOs, Data/Entities, Hubs, Migrations)
+AeroSentry.Api/        the backend (Controllers, Services and Services/Interfaces, DTOs, Data/Entities, Hubs, Migrations)
 face-service/          face detection and embeddings (FastAPI + InsightFace), offline
 ingest-worker/         reads camera streams and feeds the backend (Python + OpenCV)
 media/                 MediaMTX config template (camera video for the apps and the worker)

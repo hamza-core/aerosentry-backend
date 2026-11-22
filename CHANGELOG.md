@@ -9,6 +9,9 @@
 - Every endpoint is now `/api/v1/<feature>/<action>` (e.g. `cameras/create`, `walls/save-cells`); ids moved from the path to the query string (`?propertyId=&cameraId=`). Full list in `docs/API.md`.
 - Guards endpoints from Feature 1 changed accordingly: `guards/create`, `guards/list`, `guards/set-status`, `guards/delete`. Auth endpoints did not change.
 
+### Refactor: interfaces in their own folder
+- The 11 service interfaces moved from `Services/` to `Services/Interfaces/` (one interface per file). The exceptions and small data types that used to sit inside four of those files now have their own files next to the service (`MlModels.cs`, `FaceModels.cs`, `PersonModels.cs`, `CameraSnapshotException.cs`). No behaviour change. As everywhere in the project the namespace follows the folder, so the interfaces are now in `AeroSentry.Api.Services.Interfaces` and the 23 files that use one got `using AeroSentry.Api.Services.Interfaces;`.
+
 ### Documentation
 - Complete documentation set: `README.md`, `CONTRIBUTING.md`, `docs/ARCHITECTURE.md`, `docs/DATABASE.md` (generated from the live database), `docs/HOW-IT-WORKS.md` (every feature), `docs/TESTING.md`; `docs/API.md` checked against all 73 endpoints. Checked by a script: no file, endpoint, setting or class name in the documents is wrong.
 

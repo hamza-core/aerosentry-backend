@@ -1,6 +1,6 @@
 using AeroSentry.Api.DTOs;
 
-namespace AeroSentry.Api.Services;
+namespace AeroSentry.Api.Services.Interfaces;
 
 // Pushes an alert to everyone who may see it, over SignalR.
 public interface IAlertNotifier

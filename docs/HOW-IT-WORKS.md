@@ -170,7 +170,7 @@ cannot find out which ids are real.
 - **`Result<T>`** (`Services/Result.cs`) is what a service returns when it can fail in several ways: `Ok`, `NotFound`, `Conflict`, `BadRequest`, `Unavailable`. `ApiControllerBase.FromResult` maps them to 200/201, 404, 409, 400, 503. (Features 2 and 3 are older and return `null`/`false` or their own small result class; same idea.)
 - **`PropertyAccess`** (`Services/PropertyAccess.cs`) has the one rule "who may see this property" (`VisibleProperties`, `CanSeeProperty`, `OwnsProperty`). Every feature under a property uses it, so access control lives in one place.
 - **404 for "not yours"**, never 403, so ids cannot be probed (Feature 2).
-- **Interfaces:** each new service has an interface (`ICameraService`...), registered in `Program.cs` with `AddScoped<I..., ...>`.
+- **Interfaces:** each new service has an interface (`ICameraService`...) in `Services/Interfaces/` (one interface per file, nothing else in it), registered in `Program.cs` with `AddScoped<I..., ...>`. The exceptions and small data types that go with a client or service live in their own files next to it (`MlModels.cs`, `FaceModels.cs`, `PersonModels.cs`, `CameraSnapshotException.cs`). As everywhere in the project the namespace follows the folder: the interfaces are in `AeroSentry.Api.Services.Interfaces`, so a file that uses one needs `using AeroSentry.Api.Services.Interfaces;`.
 - **Migrations:** a model change = `dotnet ef migrations add Name` (writes the file, database untouched) then `dotnet ef database update`.
 - **Settings:** secrets in `appsettings.Local.json` (not in git), everything else in `appsettings*.json` (`docs/OFFLINE-CHECKLIST.md`).
 
@@ -186,7 +186,7 @@ An admin adds the cameras of a property: an IP Webcam phone, a CCTV camera or an
 |---|---|
 | `Controllers/CamerasController.cs` | The functions of `docs/API.md` -> Cameras; reads the token; maps results to status codes |
 | `DTOs/CameraRequest.cs`, `CameraResponse.cs`, `CameraTestResponse.cs` | What goes in and out (the response never has the password) |
-| `Services/ICameraService.cs`, `CameraService.cs`, `CameraResult.cs` | The rules |
+| `Services/Interfaces/ICameraService.cs`, `Services/CameraService.cs`, `CameraResult.cs` | The rules |
 | `Data/Entities/Camera.cs`, `AppDbContext.cs` | The `Cameras` table and its rules |
 | `Migrations/..._AddCameras.cs` | The SQL that created it |
 
@@ -265,7 +265,7 @@ Camera -> MediaMTX -> **ingest worker** -> `worker/send-frame` -> `DetectionServ
 ### The map
 | File | Its one job |
 |---|---|
-| `Services/IMlClient.cs`, `MlClient.cs` | The only class that talks to the ML service. Turns its failures into our own exceptions |
+| `Services/Interfaces/IMlClient.cs`, `Services/MlClient.cs`, `MlModels.cs` | The only class that talks to the ML service. Turns its failures into our own exceptions |
 | `Services/DetectionSessions.cs` | One shared map: wall -> its ML session (plus a short history of recent pictures) |
 | `Services/CellLocator.cs` | "Which cell is this point in?" (ray casting) |
 | `Services/DetectionService.cs` | start, frame, stop, list events, worker jobs |
@@ -379,7 +379,7 @@ An admin enrols people (resident, employee, visitor) with three photos. When som
 | File | Its one job |
 |---|---|
 | `face-service/app.py` | Finds faces in a picture and returns each face's box and its 512-number embedding. Stores nothing |
-| `Services/IFaceClient.cs`, `FaceClient.cs` | The only class that talks to the face service |
+| `Services/Interfaces/IFaceClient.cs`, `Services/FaceClient.cs`, `FaceModels.cs` | The only class that talks to the face service |
 | `Services/FaceMath.cs` | dot product, average, bytes <-> numbers |
 | `Services/PersonService.cs` | Enrolment rules, matching, status, identify, the alarm rules |
 | `Controllers/PeopleController.cs` | The functions (admin only) |
