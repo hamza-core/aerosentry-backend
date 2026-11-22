@@ -2,8 +2,9 @@ using AeroSentry.Api.DTOs;
 
 namespace AeroSentry.Api.Services;
 
-// Pushes a new alert to everyone who may see it, over SignalR.
+// Pushes an alert to everyone who may see it, over SignalR.
 public interface IAlertNotifier
 {
-    Task NotifyAsync(AlertResponse alert);
+    // eventName: "AlertRaised" (new alert) or "AlertUpdated" (its status changed).
+    Task NotifyAsync(AlertResponse alert, string eventName);
 }

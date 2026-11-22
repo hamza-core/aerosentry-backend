@@ -6,6 +6,12 @@
 - Every endpoint is now `/api/v1/<feature>/<action>` (e.g. `cameras/create`, `walls/save-cells`); ids moved from the path to the query string (`?propertyId=&cameraId=`). Full list in `docs/API.md`.
 - Guards endpoints from Feature 1 changed accordingly: `guards/create`, `guards/list`, `guards/set-status`, `guards/delete`. Auth endpoints did not change.
 
+### Feature 7: Alert actions
+- `POST alerts/acknowledge`, `alerts/mark-false-alarm`, `alerts/close`, `alerts/escalate` (admin only) and `GET alerts/list-actions`.
+- Rules in `AlertTransitions` (FalseAlarm and Closed are final); status changes are compare-and-set, so simultaneous presses give one 200 and 409s.
+- `AlertAction` table keeps the history (who, what, when, note). Status changes are pushed over SignalR as `AlertUpdated`.
+- Suspending or deleting a guard now closes their open SignalR connection; connections also close when the token expires.
+
 ### Feature 6: Alerts and real-time
 - Every stored detection alarm creates an `Alert` (incident number from a database IDENTITY column, `INC-0001`...).
 - Alerts log: `GET /api/v1/alerts/list` and `GET /api/v1/alerts/get`.

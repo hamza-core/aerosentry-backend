@@ -101,6 +101,20 @@ Every alarm the detection bridge stores becomes an alert automatically (one alar
 | Alerts log, newest first. `propertyId` is optional (leave out = every property I can see); optional `status`, `page`, `pageSize` | `GET alerts/list[?propertyId=&status=New&page=1&pageSize=20]` | any |
 | One alert | `GET alerts/get?alertId=` | any |
 
+### Alert actions
+Body is optional: `{ "note": "text up to 500 characters" }`. Each returns the updated alert (200). **409** if the alert's current
+status does not allow the action. Admins and guards assigned to the property can act; **escalate is admin only** (403 for a guard).
+| Function | Method and path | Allowed from | Becomes |
+|---|---|---|---|
+| I am on it | `POST alerts/acknowledge?alertId=` | New | Acknowledged |
+| It was nothing | `POST alerts/mark-false-alarm?alertId=` | New, Acknowledged | FalseAlarm (final) |
+| Incident over | `POST alerts/close?alertId=` | New, Acknowledged, Escalated | Closed (final) |
+| Call the authorities | `POST alerts/escalate?alertId=` (Admin) | New, Acknowledged | Escalated |
+| History: who did what and when, oldest first | `GET alerts/list-actions?alertId=` | | |
+
+History entry: `action`, `fromStatus`, `toStatus`, `byUserId`, `byName`, `byRole`, `note`, `atUtc`.
+If two people press at the same moment, exactly one succeeds and the other gets 409.
+
 Alert: `id`, `number`, `incidentCode` (`INC-0042`), `status` (`New`, later `Acknowledged`, `FalseAlarm`, `Closed`, `Escalated`),
 `propertyId/Name`, `wallId/Name`, `cameraId/Name`, `cellId`, `cellLabel` (null if the person was outside every cell),
 `probability`, `detectionEventId`, `createdAtUtc`. Admins see alerts of their properties, guards of the properties they are assigned to.
@@ -109,11 +123,13 @@ Alert: `id`, `number`, `incidentCode` (`INC-0042`), `status` (`New`, later `Ackn
 New alerts are **pushed** to the app, no polling.
 - Hub URL: `http://<server>:5078/hubs/alerts`  (SignalR, WebSockets)
 - Log in first, then connect with the token: header `Authorization: Bearer <token>`, or in the URL `?access_token=<token>` (browsers).
-- Listen for the message **`AlertRaised`**. Its single argument is an alert, in the same shape as above.
-- Who receives it: the property's owner and every **active** guard assigned to that property, at that moment.
+- Listen for two messages. Each has a single argument, an alert in the same shape as above:
+  - **`AlertRaised`**: a new alert.
+  - **`AlertUpdated`**: an alert changed status (someone acknowledged, closed it, ...). Update it in your list.
+- Who receives them: the property's owner and every **active** guard assigned to that property, at that moment.
 - Client libraries: JavaScript and React Native `@microsoft/signalr`; Flutter `signalr_netcore`; SwiftUI `SwiftSignalRClient`.
-- The connection is not re-checked after it opens: a guard suspended later stops receiving alerts immediately, but the
-  socket stays open until the app disconnects.
+- When a guard is **suspended or deleted**, the server closes their open connection at once. The app sees the connection drop,
+  and reconnecting is refused (401). The same happens when the login token expires: the app must log in again.
 - After a reconnect, call `alerts/list?status=New` to catch alerts missed while offline.
 
 ## Worker (only for the ingest worker program, not for apps)

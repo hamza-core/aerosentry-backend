@@ -16,7 +16,7 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261122111219_AddAlerts";
+    public override string LastMigrationId => "20261122111820_AddAlertActions";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -79,6 +79,57 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("PropertyId", "CreatedAtUtc");
 
                 b.ToTable("Alerts");
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.AlertAction", b =>
+            {
+                b.Property<Guid>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<string>("Action")
+                    .IsRequired()
+                    .HasMaxLength(30)
+                    .HasColumnType("nvarchar(30)");
+
+                b.Property<Guid>("AlertId")
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<DateTime>("AtUtc")
+                    .HasColumnType("datetime2");
+
+                b.Property<string>("ByName")
+                    .IsRequired()
+                    .HasMaxLength(100)
+                    .HasColumnType("nvarchar(100)");
+
+                b.Property<string>("ByRole")
+                    .IsRequired()
+                    .HasMaxLength(20)
+                    .HasColumnType("nvarchar(20)");
+
+                b.Property<Guid>("ByUserId")
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<string>("FromStatus")
+                    .IsRequired()
+                    .HasMaxLength(20)
+                    .HasColumnType("nvarchar(20)");
+
+                b.Property<string>("Note")
+                    .HasMaxLength(500)
+                    .HasColumnType("nvarchar(500)");
+
+                b.Property<string>("ToStatus")
+                    .IsRequired()
+                    .HasMaxLength(20)
+                    .HasColumnType("nvarchar(20)");
+
+                b.HasKey("Id");
+
+                b.HasIndex("AlertId", "AtUtc");
+
+                b.ToTable("AlertActions");
             });
 
         modelBuilder.Entity("AeroSentry.Api.Data.Entities.Camera", b =>
@@ -461,6 +512,17 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                 b.Navigation("Property");
 
                 b.Navigation("Wall");
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.AlertAction", b =>
+            {
+                b.HasOne("AeroSentry.Api.Data.Entities.Alert", "Alert")
+                    .WithMany()
+                    .HasForeignKey("AlertId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                b.Navigation("Alert");
             });
 
         modelBuilder.Entity("AeroSentry.Api.Data.Entities.Camera", b =>
