@@ -6,6 +6,8 @@ using Microsoft.EntityFrameworkCore;
 
 namespace AeroSentry.Api.Services;
 
+// Every method takes adminId (the caller's id from the token) and only touches
+// guards whose OwnerAdminId equals it. One admin can never see or change another admin's guards.
 public class GuardService
 {
     private readonly AppDbContext _db;
@@ -17,7 +19,7 @@ public class GuardService
     }
 
     // Returns null when the email is already taken.
-    public async Task<GuardResponse?> CreateAsync(RegisterRequest request)
+    public async Task<GuardResponse?> CreateAsync(Guid adminId, RegisterRequest request)
     {
         var email = request.Email.Trim().ToLowerInvariant();
 
@@ -29,31 +31,27 @@ public class GuardService
             Id = Guid.NewGuid(),
             FullName = request.FullName.Trim(),
             Email = email,
-            Role = "Guard"
+            PhoneNumber = request.PhoneNumber,
+            Role = "Guard",
+            OwnerAdminId = adminId
         };
         guard.PasswordHash = _hasher.HashPassword(guard, request.Password);
 
         _db.Users.Add(guard);
         await _db.SaveChangesAsync();
 
-        return new GuardResponse
-        {
-            Id = guard.Id,
-            FullName = guard.FullName,
-            Email = guard.Email,
-            Role = guard.Role,
-            Status = guard.IsActive ? "Active" : "Suspended"
-        };
+        return ToResponse(guard);
     }
 
-    public async Task<List<GuardResponse>> ListAsync(string? status = null)
+    // status: null = everyone, "Active" or "Suspended" = filter (validated in the controller).
+    public async Task<List<GuardResponse>> ListAsync(Guid adminId, string? status = null)
     {
-        var query = _db.Users.Where(u => u.Role == "Guard");
+        var query = _db.Users.Where(u => u.Role == "Guard" && u.OwnerAdminId == adminId);
 
         if (status is not null)
         {
             var active = status.Equals("Active", StringComparison.OrdinalIgnoreCase);
-            query = query.Where(u => u.IsActive == active);   
+            query = query.Where(u => u.IsActive == active);   // runs in SQL, not in memory
         }
 
         var guards = await query.OrderBy(u => u.FullName).ToListAsync();
@@ -61,10 +59,11 @@ public class GuardService
         return guards.Select(ToResponse).ToList();
     }
 
-    // Returns null when no guard has that id.
-    public async Task<GuardResponse?> SetStatusAsync(Guid id, string status)
+    // Returns null when this admin has no guard with that id.
+    public async Task<GuardResponse?> SetStatusAsync(Guid adminId, Guid id, string status)
     {
-        var guard = await _db.Users.FirstOrDefaultAsync(u => u.Id == id && u.Role == "Guard");
+        var guard = await _db.Users.FirstOrDefaultAsync(
+            u => u.Id == id && u.Role == "Guard" && u.OwnerAdminId == adminId);
         if (guard is null)
             return null;
 
@@ -73,20 +72,21 @@ public class GuardService
 
         return ToResponse(guard);
     }
-    public async Task<bool> DeleteAsync(Guid id)
+
+    public async Task<bool> DeleteAsync(Guid adminId, Guid id)
     {
-        var guard = await _db.Users.FirstOrDefaultAsync(u=>u.Id == id && u.Role == "Guard");
-        
-        if(guard is null)
-        {
+        var guard = await _db.Users.FirstOrDefaultAsync(
+            u => u.Id == id && u.Role == "Guard" && u.OwnerAdminId == adminId);
+        if (guard is null)
             return false;
-        }
-        _db.Users.Remove(guard);
-       await _db.SaveChangesAsync();
-       return true;
+
+        _db.Users.Remove(guard);   // its PropertyGuard rows are removed by the cascade rule
+        await _db.SaveChangesAsync();
+        return true;
     }
 
-    private static GuardResponse ToResponse(User u) => new()
+    // public so PropertyService can reuse the same mapping.
+    public static GuardResponse ToResponse(User u) => new()
     {
         Id = u.Id,
         FullName = u.FullName,

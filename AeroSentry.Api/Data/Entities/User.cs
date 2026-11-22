@@ -10,4 +10,7 @@ public class User
     public string Role { get; set; } = "Admin";  
     public bool IsActive { get; set; } = true;    
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+
+    // For guards: the Admin who created (owns) this guard. Null for Admins.
+    public Guid? OwnerAdminId { get; set; }
 }
