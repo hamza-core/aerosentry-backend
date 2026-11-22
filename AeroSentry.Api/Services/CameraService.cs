@@ -150,7 +150,7 @@ public class CameraService : ICameraService
 
     // Clients play this URL from the media server (MediaMTX). They never see the camera's address path or password.
     private string PlaybackUrl(Camera c) =>
-        $"{_config["Media:HlsBase"]!.TrimEnd('/')}/cam-{c.Id}/index.m3u8";
+        $"{(_config["Media:HlsBase"] ?? "http://localhost:8888").TrimEnd('/')}/cam-{c.Id}/index.m3u8";
 
     private CameraResponse ToResponse(Camera c) => new()
     {

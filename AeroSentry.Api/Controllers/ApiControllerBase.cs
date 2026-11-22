@@ -20,6 +20,7 @@ public abstract class ApiControllerBase : ControllerBase
             ResultStatus.NotFound => Problem(statusCode: 404, title: result.Message),
             ResultStatus.Conflict => Problem(statusCode: 409, title: result.Message),
             ResultStatus.BadRequest => Problem(statusCode: 400, title: result.Message),
+            ResultStatus.Unavailable => Problem(statusCode: 503, title: result.Message),
             _ => created ? StatusCode(StatusCodes.Status201Created, result.Value) : Ok(result.Value)
         };
     }

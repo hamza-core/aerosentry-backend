@@ -17,6 +17,7 @@ public class AppDbContext : DbContext
     public DbSet<Wall> Walls => Set<Wall>();
     public DbSet<WallCell> WallCells => Set<WallCell>();
     public DbSet<WallCellSquare> WallCellSquares => Set<WallCellSquare>();
+    public DbSet<DetectionEvent> DetectionEvents => Set<DetectionEvent>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -131,6 +132,20 @@ public class AppDbContext : DbContext
                   .WithMany()
                   .HasForeignKey(s => s.LaserGridId)
                   .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<DetectionEvent>(entity =>
+        {
+            entity.Property(e => e.CellLabel).HasMaxLength(50);
+            entity.Property(e => e.MlSessionId).HasMaxLength(50);
+
+            // Events are listed newest first per wall.
+            entity.HasIndex(e => new { e.WallId, e.DetectedAtUtc });
+
+            entity.HasOne(e => e.Wall)
+                  .WithMany()
+                  .HasForeignKey(e => e.WallId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<PropertyGuard>(entity =>

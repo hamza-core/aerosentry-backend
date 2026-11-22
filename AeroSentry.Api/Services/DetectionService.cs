@@ -1,0 +1,269 @@
+using System.Text.Json;
+using AeroSentry.Api.Data;
+using AeroSentry.Api.Data.Entities;
+using AeroSentry.Api.DTOs;
+using Microsoft.EntityFrameworkCore;
+
+namespace AeroSentry.Api.Services;
+
+// The detection bridge: wall annotation -> ML service -> person boxes -> wall cell -> stored event.
+public class DetectionService : IDetectionService
+{
+    private const int MaxFrameBytes = 5 * 1024 * 1024;
+
+    private readonly AppDbContext _db;
+    private readonly IMlClient _ml;
+    private readonly DetectionSessions _sessions;
+    private readonly IConfiguration _config;
+
+    public DetectionService(AppDbContext db, IMlClient ml, DetectionSessions sessions, IConfiguration config)
+    {
+        _db = db;
+        _ml = ml;
+        _sessions = sessions;
+        _config = config;
+    }
+
+    private double DefaultThreshold => _config.GetValue<double?>("Ml:Threshold") ?? 0.5;
+
+    public async Task<Result<DetectionStartResponse>> StartAsync(Guid adminId, Guid propertyId, Guid wallId, double? threshold)
+    {
+        if (!await _db.OwnsProperty(adminId, propertyId))
+            return Result<DetectionStartResponse>.NotFound("Property not found");
+
+        var wall = await _db.Walls.FirstOrDefaultAsync(w => w.Id == wallId && w.PropertyId == propertyId);
+        if (wall is null)
+            return Result<DetectionStartResponse>.NotFound("Wall not found");
+
+        var value = threshold ?? DefaultThreshold;
+        if (value < 0.05 || value > 0.95)
+            return Result<DetectionStartResponse>.BadRequest("threshold must be between 0.05 and 0.95");
+
+        try
+        {
+            await CloseSessionAsync(wallId);   // start fresh: the wall's annotation may have changed
+            var session = await OpenSessionAsync(wall, value);
+            return Result<DetectionStartResponse>.Ok(new DetectionStartResponse
+            {
+                WallId = wall.Id,
+                Threshold = session.Threshold
+            });
+        }
+        catch (MlException ex)
+        {
+            return FromMlError<DetectionStartResponse>(ex);
+        }
+    }
+
+    public async Task<Result<DetectionFrameResponse>> FrameAsync(
+        Guid adminId, Guid propertyId, Guid wallId, byte[] jpeg, int frameIndex, double timestampSeconds)
+    {
+        if (!await _db.OwnsProperty(adminId, propertyId))
+            return Result<DetectionFrameResponse>.NotFound("Property not found");
+
+        var wall = await _db.Walls.Include(w => w.Cells)
+            .FirstOrDefaultAsync(w => w.Id == wallId && w.PropertyId == propertyId);
+        if (wall is null)
+            return Result<DetectionFrameResponse>.NotFound("Wall not found");
+
+        if (jpeg.Length == 0 || jpeg.Length > MaxFrameBytes)
+            return Result<DetectionFrameResponse>.BadRequest("The frame must be a JPEG of at most 5 MB");
+
+        MlFrameResult ml;
+        DetectionSession session;
+        try
+        {
+            // No session yet (first frame, or the backend restarted): open one.
+            session = _sessions.Get(wallId) ?? await OpenSessionAsync(wall, DefaultThreshold);
+
+            // Remember WHICH gate we took: on recovery `session` is replaced by a new one,
+            // and releasing the new session's gate (never taken) would throw.
+            var gate = session.Gate;
+            await gate.WaitAsync();
+            try
+            {
+                try
+                {
+                    ml = await _ml.SendFrameAsync(session.MlSessionId, jpeg, frameIndex, timestampSeconds);
+                }
+                catch (MlSessionNotFoundException)
+                {
+                    // The ML service restarted and forgot the session: open a new one and retry once.
+                    _sessions.Remove(wallId);
+                    session = await OpenSessionAsync(wall, session.Threshold);
+                    ml = await _ml.SendFrameAsync(session.MlSessionId, jpeg, frameIndex, timestampSeconds);
+                }
+            }
+            finally
+            {
+                gate.Release();
+            }
+        }
+        catch (MlException ex)
+        {
+            return FromMlError<DetectionFrameResponse>(ex);
+        }
+
+        // Where is each person? Foot point = bottom-centre of the box.
+        var people = ml.People.Select(p => ToPerson(p, wall.Cells)).ToList();
+
+        var response = new DetectionFrameResponse
+        {
+            FramesStreamed = ml.FramesStreamed,
+            Probability = ml.LatestProbability,
+            AlarmActive = ml.AlarmActive,
+            AlarmRaised = ml.AlarmRaised,
+            People = people
+        };
+
+        if (ml.AlarmRaised)
+        {
+            // The model says "an intrusion is happening", not who. Take the most confident person
+            // who stands inside a cell; if nobody does, the event has no cell.
+            var intruder = people.Where(p => p.CellLabel is not null).OrderByDescending(p => p.Confidence).FirstOrDefault();
+            var cell = intruder is null ? null : wall.Cells.First(c => c.Label == intruder.CellLabel);
+
+            var detection = new DetectionEvent
+            {
+                WallId = wall.Id,
+                CellId = cell?.Id,
+                CellLabel = cell?.Label,
+                Probability = ml.LatestProbability,
+                Threshold = session.Threshold,
+                FrameNumber = ml.FramesStreamed,
+                TimestampSeconds = timestampSeconds,
+                MlSessionId = session.MlSessionId
+            };
+            _db.DetectionEvents.Add(detection);
+            await _db.SaveChangesAsync();
+
+            response.EventId = detection.Id;
+            response.CellLabel = detection.CellLabel;
+        }
+
+        return Result<DetectionFrameResponse>.Ok(response);
+    }
+
+    public async Task<Result<DetectionStopResponse>> StopAsync(Guid adminId, Guid propertyId, Guid wallId)
+    {
+        if (!await _db.OwnsProperty(adminId, propertyId))
+            return Result<DetectionStopResponse>.NotFound("Property not found");
+
+        if (!await _db.Walls.AnyAsync(w => w.Id == wallId && w.PropertyId == propertyId))
+            return Result<DetectionStopResponse>.NotFound("Wall not found");
+
+        var session = _sessions.Remove(wallId);
+        if (session is null)
+            return Result<DetectionStopResponse>.NotFound("No detection session is running for this wall");
+
+        try
+        {
+            var summary = await _ml.StopSessionAsync(session.MlSessionId);
+            return Result<DetectionStopResponse>.Ok(new DetectionStopResponse
+            {
+                FramesStreamed = summary.FramesStreamed,
+                AlarmCount = summary.AlarmCount,
+                MaxProbability = summary.MaxProbability
+            });
+        }
+        catch (MlSessionNotFoundException)
+        {
+            // The ML service already forgot it (restarted). Our side is closed, which is what matters.
+            return Result<DetectionStopResponse>.Ok(new DetectionStopResponse());
+        }
+        catch (MlException ex)
+        {
+            return FromMlError<DetectionStopResponse>(ex);
+        }
+    }
+
+    public async Task<Result<PagedResponse<DetectionEventResponse>>> ListEventsAsync(
+        Guid userId, string role, Guid propertyId, Guid wallId, int page, int pageSize)
+    {
+        if (page < 1 || pageSize < 1 || pageSize > 100)
+            return Result<PagedResponse<DetectionEventResponse>>.BadRequest("page must be 1 or more and pageSize from 1 to 100");
+
+        if (!await _db.CanSeeProperty(userId, role, propertyId))
+            return Result<PagedResponse<DetectionEventResponse>>.NotFound("Property not found");
+
+        if (!await _db.Walls.AnyAsync(w => w.Id == wallId && w.PropertyId == propertyId))
+            return Result<PagedResponse<DetectionEventResponse>>.NotFound("Wall not found");
+
+        var query = _db.DetectionEvents.Where(e => e.WallId == wallId);
+        var total = await query.CountAsync();
+        var rows = await query
+            .OrderByDescending(e => e.DetectedAtUtc)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return Result<PagedResponse<DetectionEventResponse>>.Ok(new PagedResponse<DetectionEventResponse>
+        {
+            Items = rows.Select(ToResponse).ToList(),
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = total
+        });
+    }
+
+    // ---- helpers ----
+
+    private async Task<DetectionSession> OpenSessionAsync(Wall wall, double threshold)
+    {
+        var top = JsonSerializer.Deserialize<double[][]>(wall.TopPointsJson)!;
+        var bottom = JsonSerializer.Deserialize<double[][]>(wall.BottomPointsJson)!;
+
+        var mlSessionId = await _ml.StartSessionAsync(top, bottom, wall.FrameWidth, wall.FrameHeight, threshold);
+
+        var session = new DetectionSession { MlSessionId = mlSessionId, Threshold = threshold };
+        _sessions.Set(wall.Id, session);
+        return session;
+    }
+
+    // Best effort: forget our session and tell the ML service, ignoring ML errors.
+    private async Task CloseSessionAsync(Guid wallId)
+    {
+        var old = _sessions.Remove(wallId);
+        if (old is null)
+            return;
+
+        try { await _ml.StopSessionAsync(old.MlSessionId); }
+        catch (MlException) { }
+    }
+
+    private static DetectedPersonDto ToPerson(MlPerson p, IEnumerable<WallCell> cells)
+    {
+        // box = [x1, y1, x2, y2]
+        var footX = (p.Box[0] + p.Box[2]) / 2;
+        var footY = p.Box[3];
+
+        return new DetectedPersonDto
+        {
+            TrackId = p.TrackId,
+            Box = p.Box,
+            Confidence = p.Confidence,
+            FootX = footX,
+            FootY = footY,
+            CellLabel = CellLocator.Find(cells, footX, footY)?.Label
+        };
+    }
+
+    private static Result<T> FromMlError<T>(MlException ex) => ex switch
+    {
+        MlRejectedException => Result<T>.BadRequest(ex.Message),
+        _ => Result<T>.Unavailable(ex.Message)
+    };
+
+    private static DetectionEventResponse ToResponse(DetectionEvent e) => new()
+    {
+        Id = e.Id,
+        WallId = e.WallId,
+        CellId = e.CellId,
+        CellLabel = e.CellLabel,
+        Probability = e.Probability,
+        Threshold = e.Threshold,
+        FrameNumber = e.FrameNumber,
+        TimestampSeconds = e.TimestampSeconds,
+        DetectedAtUtc = e.DetectedAtUtc
+    };
+}
