@@ -10,7 +10,7 @@ public interface ICameraService
 
     Task<CameraResult> CreateAsync(Guid adminId, Guid propertyId, CameraRequest request);
     Task<CameraResult> UpdateAsync(Guid adminId, Guid propertyId, Guid id, CameraRequest request);
-    Task<bool> DeleteAsync(Guid adminId, Guid propertyId, Guid id);
+    Task<Result<bool>> DeleteAsync(Guid adminId, Guid propertyId, Guid id);
 
     // null = the property is not this admin's
     Task<CameraTestResponse?> TestAsync(Guid adminId, Guid propertyId, CameraRequest request);

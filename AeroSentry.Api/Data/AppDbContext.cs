@@ -14,6 +14,7 @@ public class AppDbContext : DbContext
     public DbSet<PropertyGuard> PropertyGuards => Set<PropertyGuard>();
     public DbSet<Camera> Cameras => Set<Camera>();
     public DbSet<LaserGrid> LaserGrids => Set<LaserGrid>();
+    public DbSet<Wall> Walls => Set<Wall>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -70,6 +71,31 @@ public class AppDbContext : DbContext
                   .WithMany()
                   .HasForeignKey(g => g.PropertyId)
                   .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Wall>(entity =>
+        {
+            entity.Property(w => w.Name).HasMaxLength(200);
+
+            // No two walls in the same property may share a name.
+            entity.HasIndex(w => new { w.PropertyId, w.Name }).IsUnique();
+
+            entity.HasOne(w => w.Property)
+                  .WithMany()
+                  .HasForeignKey(w => w.PropertyId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            // Restrict: a camera or laser grid that a wall uses cannot be deleted by accident.
+            // (The services check this first and answer 409.)
+            entity.HasOne(w => w.Camera)
+                  .WithMany()
+                  .HasForeignKey(w => w.CameraId)
+                  .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(w => w.LaserGrid)
+                  .WithMany()
+                  .HasForeignKey(w => w.LaserGridId)
+                  .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<PropertyGuard>(entity =>

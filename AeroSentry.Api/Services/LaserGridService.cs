@@ -85,6 +85,9 @@ public class LaserGridService : ILaserGridService
         if (grid is null)
             return Result<bool>.NotFound("Laser grid not found");
 
+        if (await _db.Walls.AnyAsync(w => w.LaserGridId == id))
+            return Result<bool>.Conflict("This laser grid is used by a wall");
+
         _db.LaserGrids.Remove(grid);
         await _db.SaveChangesAsync();
         return Result<bool>.Ok(true);

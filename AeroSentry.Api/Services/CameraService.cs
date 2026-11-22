@@ -78,18 +78,21 @@ public class CameraService : ICameraService
         return new CameraResult { Status = CameraStatus.Success, Camera = ToResponse(camera) };
     }
 
-    public async Task<bool> DeleteAsync(Guid adminId, Guid propertyId, Guid id)
+    public async Task<Result<bool>> DeleteAsync(Guid adminId, Guid propertyId, Guid id)
     {
         if (!await OwnsProperty(adminId, propertyId))
-            return false;
+            return Result<bool>.NotFound("Property not found");
 
         var camera = await _db.Cameras.FirstOrDefaultAsync(c => c.Id == id && c.PropertyId == propertyId);
         if (camera is null)
-            return false;
+            return Result<bool>.NotFound("Camera not found");
+
+        if (await _db.Walls.AnyAsync(w => w.CameraId == id))
+            return Result<bool>.Conflict("This camera is used by a wall");
 
         _db.Cameras.Remove(camera);
         await _db.SaveChangesAsync();
-        return true;
+        return Result<bool>.Ok(true);
     }
 
     // Only checks that host:port accepts a TCP connection within 3 seconds.
