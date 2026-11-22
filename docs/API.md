@@ -132,6 +132,23 @@ New alerts are **pushed** to the app, no polling.
   and reconnecting is refused (401). The same happens when the login token expires: the app must log in again.
 - After a reconnect, call `alerts/list?status=New` to catch alerts missed while offline.
 
+## Drones (PLANNED, NOT IMPLEMENTED YET)
+Every function below answers **501 Not Implemented** today. They are listed so the apps can prepare; names and parameters may
+still change. See `docs/FUTURE-WORK.md` for what is decided and what is open.
+| Function | Method and path |
+|---|---|
+| List drones | `GET drones/list?propertyId=` |
+| Register a drone (Admin) | `POST drones/create?propertyId=` |
+| Remove a drone (Admin) | `DELETE drones/delete?propertyId=&droneId=` |
+| Send a drone to an alert's cell | `POST drones/dispatch?alertId=` |
+| Live status of a drone | `GET drones/get-status?propertyId=&droneId=` |
+| Flight logs | `GET drones/list-flight-logs?propertyId=&droneId=` |
+| Return home | `POST drones/return-home?propertyId=&droneId=` |
+| Emergency land | `POST drones/emergency-land?propertyId=&droneId=` |
+| Take manual control (pauses autonomous flight) | `POST drones/take-manual-control?propertyId=&droneId=` |
+| Joystick values while in manual control | `POST drones/send-controls?propertyId=&droneId=` |
+| Resume the mission | `POST drones/release-manual-control?propertyId=&droneId=` |
+
 ## Worker (only for the ingest worker program, not for apps)
 Authenticated with the header `X-Worker-Key: <Worker:ApiKey>`. A user's JWT does not work here, and the key works nowhere else.
 | Function | Method and path |
