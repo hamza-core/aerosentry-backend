@@ -34,7 +34,7 @@ public class PropertyService
         _db.Properties.Add(property);
         await _db.SaveChangesAsync();
 
-        return ToResponse(property);
+        return ToResponse(property , "Admin");
     }
 
     // Admin: properties I own. Guard: properties I am assigned to.
@@ -44,13 +44,14 @@ public class PropertyService
             .OrderBy(p => p.Name)
             .ToListAsync();
 
-        return properties.Select(ToResponse).ToList();
+        return properties.Select(p=>ToResponse(p,role)).ToList();
     }
 
     public async Task<PropertyResponse?> GetAsync(Guid userId, string role, Guid id)
     {
         var property = await VisibleTo(userId, role).FirstOrDefaultAsync(p => p.Id == id);
-        return property is null ? null : ToResponse(property);
+       
+        return property is null ? null :  ToResponse(property , role);
     }
 
     public async Task<PropertyResponse?> UpdateAsync(Guid adminId, Guid id, PropertyRequest request)
@@ -66,7 +67,7 @@ public class PropertyService
         property.Note = request.Note?.Trim();
         await _db.SaveChangesAsync();
 
-        return ToResponse(property);
+        return ToResponse(property , "Admin");
     }
 
     public async Task<bool> DeleteAsync(Guid adminId, Guid id)
@@ -140,11 +141,11 @@ public class PropertyService
             : _db.Properties.Where(p => p.PropertyGuards.Any(pg => pg.GuardId == userId));
     }
 
-    private static PropertyResponse ToResponse(Property p) => new()
+    private static PropertyResponse ToResponse(Property p , string role ) => new()
     {
         Id = p.Id,
         Name = p.Name,
-        Address = p.Address,
+        Address = role=="Admin" ? p.Address : null,
         Latitude = p.Latitude,
         Longitude = p.Longitude,
         CreatedAtUtc = p.CreatedAtUtc,
