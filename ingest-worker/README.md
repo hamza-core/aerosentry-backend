@@ -24,6 +24,10 @@ python worker.py --source camera      # reads each camera directly (no media ser
 It asks the backend every 5 seconds which walls are switched on (`detection/start` switches a wall on,
 `detection/stop` switches it off), and starts or stops watching them by itself.
 
+## Reading RTSP
+The worker reads RTSP over **TCP** and gives up on a dead camera after 10 s (it then reconnects). OpenCV's default is UDP, which lost packets over
+Wi-Fi in testing. Set `OPENCV_FFMPEG_CAPTURE_OPTIONS` yourself to change that. The media server and its camera config are in `../media/`.
+
 ## Options
 | Option | Meaning |
 |---|---|
