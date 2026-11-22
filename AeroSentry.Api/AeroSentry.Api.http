@@ -4,8 +4,3 @@ GET {{AeroSentry.Api_HostAddress}}/openapi/v1.json
 Accept: application/json
 
 ###
-
-GET {{AeroSentry.Api_HostAddress}}/weatherforecast/
-Accept: application/json
-
-###
