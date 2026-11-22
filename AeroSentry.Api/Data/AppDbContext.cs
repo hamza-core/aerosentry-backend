@@ -18,6 +18,7 @@ public class AppDbContext : DbContext
     public DbSet<WallCell> WallCells => Set<WallCell>();
     public DbSet<WallCellSquare> WallCellSquares => Set<WallCellSquare>();
     public DbSet<DetectionEvent> DetectionEvents => Set<DetectionEvent>();
+    public DbSet<Alert> Alerts => Set<Alert>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -146,6 +147,40 @@ public class AppDbContext : DbContext
                   .WithMany()
                   .HasForeignKey(e => e.WallId)
                   .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<Alert>(entity =>
+        {
+            // INC-0001, INC-0002, ...: the database numbers alerts itself (IDENTITY), so two
+            // alarms at the same moment can never get the same number.
+            entity.Property(a => a.Number).ValueGeneratedOnAdd();
+            entity.HasIndex(a => a.Number).IsUnique();
+
+            entity.Property(a => a.CellLabel).HasMaxLength(50);
+            entity.Property(a => a.Status).HasMaxLength(20);
+
+            // One alert per detection event.
+            entity.HasIndex(a => a.DetectionEventId).IsUnique();
+
+            // The alerts log is read newest first, per property.
+            entity.HasIndex(a => new { a.PropertyId, a.CreatedAtUtc });
+
+            // An alert goes when its detection event goes (which goes with its wall and property).
+            entity.HasOne(a => a.DetectionEvent)
+                  .WithMany()
+                  .HasForeignKey(a => a.DetectionEventId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            // Restrict on the other two: SQL Server allows only one cascade path to a table.
+            entity.HasOne(a => a.Property)
+                  .WithMany()
+                  .HasForeignKey(a => a.PropertyId)
+                  .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(a => a.Wall)
+                  .WithMany()
+                  .HasForeignKey(a => a.WallId)
+                  .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<PropertyGuard>(entity =>

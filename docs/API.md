@@ -94,6 +94,28 @@ Route body (a list, in drone visiting order): `[{ "row": 0, "col": 0 }, ...]`.
 `detection/start` switches a wall **on** (saved in the database, so it survives a backend restart; the wall then shows
 `detectionEnabled: true`) and `detection/stop` switches it **off**. The ingest worker watches every wall that is switched on.
 
+## Alerts (the alerts log)
+Every alarm the detection bridge stores becomes an alert automatically (one alarm = one alert).
+| Function | Method and path | Who |
+|---|---|---|
+| Alerts log, newest first. `propertyId` is optional (leave out = every property I can see); optional `status`, `page`, `pageSize` | `GET alerts/list[?propertyId=&status=New&page=1&pageSize=20]` | any |
+| One alert | `GET alerts/get?alertId=` | any |
+
+Alert: `id`, `number`, `incidentCode` (`INC-0042`), `status` (`New`, later `Acknowledged`, `FalseAlarm`, `Closed`, `Escalated`),
+`propertyId/Name`, `wallId/Name`, `cameraId/Name`, `cellId`, `cellLabel` (null if the person was outside every cell),
+`probability`, `detectionEventId`, `createdAtUtc`. Admins see alerts of their properties, guards of the properties they are assigned to.
+
+### Live alerts (SignalR)
+New alerts are **pushed** to the app, no polling.
+- Hub URL: `http://<server>:5078/hubs/alerts`  (SignalR, WebSockets)
+- Log in first, then connect with the token: header `Authorization: Bearer <token>`, or in the URL `?access_token=<token>` (browsers).
+- Listen for the message **`AlertRaised`**. Its single argument is an alert, in the same shape as above.
+- Who receives it: the property's owner and every **active** guard assigned to that property, at that moment.
+- Client libraries: JavaScript and React Native `@microsoft/signalr`; Flutter `signalr_netcore`; SwiftUI `SwiftSignalRClient`.
+- The connection is not re-checked after it opens: a guard suspended later stops receiving alerts immediately, but the
+  socket stays open until the app disconnects.
+- After a reconnect, call `alerts/list?status=New` to catch alerts missed while offline.
+
 ## Worker (only for the ingest worker program, not for apps)
 Authenticated with the header `X-Worker-Key: <Worker:ApiKey>`. A user's JWT does not work here, and the key works nowhere else.
 | Function | Method and path |

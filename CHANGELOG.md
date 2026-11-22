@@ -6,6 +6,13 @@
 - Every endpoint is now `/api/v1/<feature>/<action>` (e.g. `cameras/create`, `walls/save-cells`); ids moved from the path to the query string (`?propertyId=&cameraId=`). Full list in `docs/API.md`.
 - Guards endpoints from Feature 1 changed accordingly: `guards/create`, `guards/list`, `guards/set-status`, `guards/delete`. Auth endpoints did not change.
 
+### Feature 6: Alerts and real-time
+- Every stored detection alarm creates an `Alert` (incident number from a database IDENTITY column, `INC-0001`...).
+- Alerts log: `GET /api/v1/alerts/list` and `GET /api/v1/alerts/get`.
+- Live push over SignalR at `/hubs/alerts` (message `AlertRaised`) to the property's owner and its active assigned guards.
+- JWT accepted as `?access_token=` on `/hubs` paths; CORS added (`Cors:Origins`).
+- Ingest worker (`ingest-worker/`) and `worker/get-jobs`, `worker/send-frame`; watching a wall is now saved in the database.
+
 ### Feature 2 to 5: properties, cameras, laser grids and walls, ML detection bridge (in progress on feature/cameras)
 - Properties with guard assignment, cameras with connection test, laser grids with configurable size, walls with annotation, cells and laser routes, and the detection bridge to the ML service with stored alarm events.
 

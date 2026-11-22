@@ -1,6 +1,8 @@
 using Scalar.AspNetCore;
 using AeroSentry.Api.Data;
 using AeroSentry.Api.Services;
+using AeroSentry.Api.Hubs;
+using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using System.Text;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
@@ -31,6 +33,19 @@ builder.Services.AddHttpClient<IMlClient, MlClient>(client =>
 builder.Services.AddSingleton<DetectionSessions>();   // one shared wall -> ML session map
 builder.Services.AddScoped<IDetectionService, DetectionService>();
 
+// Alerts: stored in the database, pushed live over SignalR (hub at /hubs/alerts).
+builder.Services.AddScoped<IAlertService, AlertService>();
+builder.Services.AddScoped<IAlertNotifier, AlertNotifier>();
+builder.Services.AddSignalR();
+builder.Services.AddSingleton<IUserIdProvider, SubUserIdProvider>();   // "send to user X" = the token's sub claim
+
+// CORS: browsers (the ReactJS client) may only call the API from origins listed here.
+// Phones and desktop apps ignore CORS. Add the demo machine's address in Cors:Origins when running on a LAN.
+var corsOrigins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>()
+                  ?? new[] { "http://localhost:3000", "http://localhost:5173" };
+builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
+    policy.WithOrigins(corsOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
+
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
     {
@@ -51,6 +66,16 @@ builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
 
         options.Events = new JwtBearerEvents
         {
+            // Browsers cannot put a header on a WebSocket, so for the SignalR hub the token comes
+            // in the query string (?access_token=...). Only accepted on /hubs paths.
+            OnMessageReceived = context =>
+            {
+                var token = context.Request.Query["access_token"];
+                if (!string.IsNullOrEmpty(token) && context.HttpContext.Request.Path.StartsWithSegments("/hubs"))
+                    context.Token = token;
+                return Task.CompletedTask;
+            },
+
             OnTokenValidated = async context =>
             {
                 var db = context.HttpContext.RequestServices.GetRequiredService<AppDbContext>();
@@ -77,9 +102,11 @@ if (app.Environment.IsDevelopment())
 
 app.UseHttpsRedirection();
 
+app.UseCors();
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
+app.MapHub<AlertsHub>("/hubs/alerts");
 
 app.Run();
