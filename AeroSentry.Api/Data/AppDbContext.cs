@@ -42,6 +42,7 @@ public class AppDbContext : DbContext
         {
             entity.Property(p => p.Name).HasMaxLength(200);
             entity.Property(p => p.Address).HasMaxLength(300);
+            entity.Property(p=>p.Note).HasMaxLength(500).IsRequired(false);
 
             entity.HasOne(p => p.OwnerAdmin)
                   .WithMany()

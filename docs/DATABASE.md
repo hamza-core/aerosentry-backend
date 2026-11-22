@@ -71,6 +71,7 @@ A place being protected. Owned by one admin.
 | `Latitude` | float | yes |  |
 | `Longitude` | float | yes |  |
 | `CreatedAtUtc` | datetime2 | no |  |
+| `Note` | nvarchar(500) | yes |  |
 
 Rules:
 - Primary key: (Id)
