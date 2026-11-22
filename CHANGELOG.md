@@ -10,6 +10,8 @@
 - `GET cameras/get-snapshot` (picture from an IP Webcam phone, with its size) and `PUT walls/save-annotation`; a changed annotation resets the running ML session.
 - Ingest worker now samples by time at 5 frames/s (measured training rate: 65% of training videos are 25 fps, 20% are 30 fps, 14% are 24 fps), paces itself to what the ML service can analyse, and warns when the camera's picture shape differs from the annotation. Details in `ingest-worker/README.md`.
 - Tested against a real IP Webcam phone (640x480, about 30 fps, no login): snapshot, stream and the whole detection chain.
+- Media server: `media/` (MediaMTX config template and notes). Verified with the real phone: RTSP over TCP pull, RTSP and HLS out, one connection to the phone, config hot-reload. The worker reads RTSP over TCP.
+- `ml-service/start-ml.sh cpu|gpu|stop|status`: switch between the original (GPU) ML service and a new CPU copy (`standalone_every_5_frames_cpu`, two lines changed, original untouched). `tools/probe-rtsp.py` finds a camera's RTSP address. `docs/REAL-CAMERAS.md` is the checklist for real cameras.
 - Finding: the ML service on the GPU (mps) analyses only about 2-2.5 frames/s once its 60-frame window is full; on the CPU about 14. See `docs/FUTURE-WORK.md`.
 
 ### Feature 8: Drone (planned, NOT implemented)

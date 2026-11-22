@@ -61,24 +61,27 @@ decimals), alarms on exactly the same frames, same decisions, same people and bo
 `extract_every_5_frames.py` the line `DEVICE = "mps" if ... else "cpu"` should be `"cpu"`. The model files and all logic stay the same.
 Real phone (30 fps) measured against the CPU copy: analysed at 4.5 to 5.0 frames/s at about 95 ms per frame, instead of 1.2 to 3.1.
 
-**Why it is not done.** The ML service is frozen and approved by the supervisor. Options: (1) keep the original and accept the
-slower analysis (the worker paces itself and warns); (2) make a **copy** of the folder (for example `standalone_every_5_frames_cpu`)
-with those two lines changed and run that one; (3) change the approved folder after telling the supervisor. The throwaway copy used
-for the measurements is in the session's scratch folder and can be put into your project folder on request.
+**What was done.** The ML service is frozen and approved by the supervisor, so the original (GPU) folder was NOT changed. A **copy** with those two lines
+changed now sits next to it: `/Users/ab/FINAL FYP AI MODEL/standalone_every_5_frames_cpu` (see its `CPU_VERSION.md`; the model files are byte-identical).
+`ml-service/start-ml.sh cpu|gpu|stop|status` switches between them (one at a time, both use port 8010). Which one the demo uses, and whether the
+supervisor must be told about the CPU copy, is your decision.
 Not measured: other Macs, a machine with an NVIDIA GPU (the code only knows `mps` and `cpu`), or two or more walls at once.
 
 ## Tested with a real IP Webcam phone
-`192.168.0.107:8080` ("IP Webcam Server 0.4"): no login, `/shot.jpg` 640x480 in about 0.3 s, `/video` MJPEG at about 30 fps.
-Backend camera test, snapshot, worker reading the stream directly (`--source camera`), ML analysis and an alert were all checked.
+`192.168.0.107:8080` ("IP Webcam Server 0.4"): no login, `/shot.jpg` 640x480 in about 0.3 s, `/video` MJPEG at about 30 fps, and RTSP
+(`h264.sdp`, H.264 video only; `h264_ulaw/pcm/aac.sdp` add audio). Checked: backend camera test, snapshot, worker reading the phone directly
+(`--source camera`), **MediaMTX pulling the phone over RTSP/TCP and serving RTSP and HLS** (one connection to the phone for several readers,
+HLS playlist and fMP4 segments, decoded by ffmpeg, config hot-reload), the worker reading it through MediaMTX, ML analysis and an alert.
+See `media/README.md` (UDP loses packets over Wi-Fi and breaks HLS; use `rtspTransport: tcp`).
 The annotation used in that test was a placeholder, so its alarm cell ("outside every cell") means nothing. Still untested:
-phone login enabled, phone on weak Wi-Fi for hours, phone sleeping, your CCTV cameras and NVR (RTSP), and MediaMTX.
+phone login enabled, phone on weak Wi-Fi for hours, phone sleeping, and your CCTV cameras and NVR (RTSP paths differ by brand).
 
 ## Other things not done yet
 
 | Item | Note |
 |---|---|
 | Merge repeated alarms | Today one ML alarm = one alert. A repeat on the same wall within a time window could join the same incident. Decide after seeing real footage. |
-| Real cameras, NVR and MediaMTX | Only tested with a video file. Needs the exact RTSP URLs of the NVR and cameras, and a `mediamtx.yml` entry per camera (path name `cam-<cameraId>`). |
+| CCTV cameras and the NVR | Not tested. Needs their brand and RTSP paths, then a block per camera in `media/mediamtx.yml` (name `cam-<cameraId>`, `rtspTransport: tcp`). Writing that file by hand is the manual step: the backend could generate it from the cameras (not built). |
 | IP Webcam (phone) through MediaMTX | Tested directly (`--source camera`). MediaMTX needs the phone's RTSP mode or ffmpeg (not installed on this Mac). Not tested. |
 | Snapshot for RTSP / ONVIF cameras | `cameras/get-snapshot` only works for IP Webcam phones (the backend cannot decode RTSP without ffmpeg). For the others the app captures a frame from the playback stream. |
 | Frame rate | Done: sampled by time at 5/s (the measured training rate), paced to what the ML service can analyse. Open: ML service speed, see the section above. |

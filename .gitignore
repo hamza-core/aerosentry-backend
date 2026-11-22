@@ -485,3 +485,6 @@ $RECYCLE.BIN/
 
 # Vim temporary swap files
 *.swp
+
+# Real MediaMTX config: holds camera passwords (the example file is committed)
+media/mediamtx.yml

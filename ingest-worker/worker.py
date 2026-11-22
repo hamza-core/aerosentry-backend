@@ -35,6 +35,10 @@ import sys
 import threading
 import time
 
+# Read RTSP over TCP and give up on a dead camera after 10 s. By default OpenCV tries UDP, which loses packets on Wi-Fi
+# (measured with a phone: lost keyframes, broken frames). Must be set BEFORE opencv is imported. A value already set wins.
+os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp|stimeout;10000000")
+
 import cv2
 import requests
 
