@@ -38,19 +38,26 @@ public class PropertyService
     }
 
     // Admin: properties I own. Guard: properties I am assigned to.
-    public async Task<List<PropertyResponse>> ListAsync(Guid userId, string role , string? search = "")
+    public async Task<List<PropertyResponse>> ListAsync(Guid userId, string role, string? search = null)
     {
-        var properties =  VisibleTo(userId, role);
+        // A query, not data yet: nothing runs in the database until ToListAsync().
+        var query = VisibleTo(userId, role);
 
-            if (!string.IsNullOrWhiteSpace(search)){
+        if (!string.IsNullOrWhiteSpace(search))
+        {
+            var term = search.Trim().ToLower();
 
-    var term = search.Trim().ToLower();
-     properties = properties.Where(p => p.Name != null && p.Name.ToLower().Contains(search.Trim().ToLower()) || p.Address.ToLower().Contains(search.Trim().ToLower())  );
-            }
-           
-             await  properties.OrderBy(p => p.Name).ToListAsync();
-        
-            return properties.Select(p=>ToResponse(p,role)).ToList();
+            // A guard never sees the address, so a guard must not be able to search by it either:
+            // otherwise they could find an address by guessing it letter by letter.
+            query = role == "Admin"
+                ? query.Where(p => p.Name.ToLower().Contains(term) || p.Address.ToLower().Contains(term))
+                : query.Where(p => p.Name.ToLower().Contains(term));
+        }
+
+        // The filter and the sort both run in SQL Server; the query is executed once.
+        var properties = await query.OrderBy(p => p.Name).ToListAsync();
+
+        return properties.Select(p => ToResponse(p, role)).ToList();
     }
 
     public async Task<PropertyResponse?> GetAsync(Guid userId, string role, Guid id)
