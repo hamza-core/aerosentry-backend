@@ -34,13 +34,19 @@ Base URL: `http://<server>:5078/api/v1`  (Scalar page: `/scalar`, Development on
 | Function | Method and path | Who |
 |---|---|---|
 | Add a property | `POST properties/create` | Admin |
-| List properties I can see | `GET properties/list` | any |
+| List properties I can see, sorted by name (optional `?search=text`, see below) | `GET properties/list` | any |
 | One property | `GET properties/get?propertyId=` | any |
 | Edit a property | `PUT properties/update?propertyId=` | Admin |
 | Delete a property | `DELETE properties/delete?propertyId=` | Admin |
 | Guards of a property | `GET properties/list-guards?propertyId=` | Admin |
 | Give a guard access | `PUT properties/assign-guard?propertyId=&guardId=` | Admin |
 | Take access away | `DELETE properties/unassign-guard?propertyId=&guardId=` | Admin |
+
+A property has `name`, `address`, `latitude`, `longitude` and an optional `note` (text, at most 500 characters; trimmed; **400** if longer). Create and update accept them, get and list return them. **Update replaces everything**: leaving `note` out clears it.
+
+**What a guard sees:** a guard gets `address: null` on get and list (name, note and the rest are returned). Guards also cannot change anything (403).
+
+**Search:** `GET properties/list?search=text` keeps the properties whose **name** contains the text, ignoring case. For an **admin** the **address** is searched too; for a **guard** only the name is, so a guard cannot find a hidden address by guessing. Blank or missing `search` returns everything.
 
 ## Cameras
 | Function | Method and path | Who |

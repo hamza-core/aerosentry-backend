@@ -5,6 +5,12 @@
 ### Added
 - Optional `note` (up to 500 characters) on a property: create, update, get and list. New nullable column `Properties.Note` (migration `AddPropertyNotes`).
 
+- `properties/list?search=text`: keeps properties whose name contains the text (case ignored); admins also match on the address, guards only on the name. Filtering and sorting run in SQL Server.
+- A guard now gets `address: null` on `properties/get` and `properties/list` (admins unchanged). `address` in a property response can therefore be `null`.
+
+### Fixed
+- `properties/list` sorted by name again after the search change (a result was being thrown away and the query ran twice), and a guard can no longer find a property by its hidden address through `?search=`.
+
 ### Removed
 - The leftover ASP.NET template `WeatherForecast` controller and model. It was a public endpoint (`/WeatherForecast`) that returned random sample data and nothing used it.
 
