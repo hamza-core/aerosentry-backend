@@ -25,6 +25,7 @@ public class DetectionService : IDetectionService
     }
 
     private double DefaultThreshold => _config.GetValue<double?>("Ml:Threshold") ?? 0.5;
+    private string RtspBase => (_config["Media:RtspBase"] ?? "rtsp://localhost:8554").TrimEnd('/');
 
     public async Task<Result<DetectionStartResponse>> StartAsync(Guid adminId, Guid propertyId, Guid wallId, double? threshold)
     {
@@ -43,6 +44,12 @@ public class DetectionService : IDetectionService
         {
             await CloseSessionAsync(wallId);   // start fresh: the wall's annotation may have changed
             var session = await OpenSessionAsync(wall, value);
+
+            // Only after the ML service accepted the wall: remember "this wall is being watched".
+            wall.DetectionEnabled = true;
+            wall.DetectionThreshold = value;
+            await _db.SaveChangesAsync();
+
             return Result<DetectionStartResponse>.Ok(new DetectionStartResponse
             {
                 WallId = wall.Id,
@@ -66,6 +73,118 @@ public class DetectionService : IDetectionService
         if (wall is null)
             return Result<DetectionFrameResponse>.NotFound("Wall not found");
 
+        return await ProcessFrameAsync(wall, jpeg, frameIndex, timestampSeconds);
+    }
+
+    public async Task<Result<DetectionFrameResponse>> WorkerFrameAsync(
+        Guid wallId, byte[] jpeg, int frameIndex, double timestampSeconds)
+    {
+        var wall = await _db.Walls.Include(w => w.Cells).FirstOrDefaultAsync(w => w.Id == wallId);
+        if (wall is null)
+            return Result<DetectionFrameResponse>.NotFound("Wall not found");
+
+        if (!wall.DetectionEnabled)
+            return Result<DetectionFrameResponse>.Conflict("Detection is not enabled for this wall");
+
+        return await ProcessFrameAsync(wall, jpeg, frameIndex, timestampSeconds);
+    }
+
+    public async Task<Result<DetectionStopResponse>> StopAsync(Guid adminId, Guid propertyId, Guid wallId)
+    {
+        if (!await _db.OwnsProperty(adminId, propertyId))
+            return Result<DetectionStopResponse>.NotFound("Property not found");
+
+        var wall = await _db.Walls.FirstOrDefaultAsync(w => w.Id == wallId && w.PropertyId == propertyId);
+        if (wall is null)
+            return Result<DetectionStopResponse>.NotFound("Wall not found");
+
+        var session = _sessions.Remove(wallId);
+        if (session is null && !wall.DetectionEnabled)
+            return Result<DetectionStopResponse>.NotFound("No detection session is running for this wall");
+
+        wall.DetectionEnabled = false;
+        await _db.SaveChangesAsync();
+
+        // Switched on in the database but no session in memory (the backend restarted): nothing more to close.
+        if (session is null)
+            return Result<DetectionStopResponse>.Ok(new DetectionStopResponse());
+
+        try
+        {
+            var summary = await _ml.StopSessionAsync(session.MlSessionId);
+            return Result<DetectionStopResponse>.Ok(new DetectionStopResponse
+            {
+                FramesStreamed = summary.FramesStreamed,
+                AlarmCount = summary.AlarmCount,
+                MaxProbability = summary.MaxProbability
+            });
+        }
+        catch (MlSessionNotFoundException)
+        {
+            // The ML service already forgot it (restarted). Our side is closed, which is what matters.
+            return Result<DetectionStopResponse>.Ok(new DetectionStopResponse());
+        }
+        catch (MlException ex)
+        {
+            return FromMlError<DetectionStopResponse>(ex);
+        }
+    }
+
+    public async Task<Result<PagedResponse<DetectionEventResponse>>> ListEventsAsync(
+        Guid userId, string role, Guid propertyId, Guid wallId, int page, int pageSize)
+    {
+        if (page < 1 || pageSize < 1 || pageSize > 100)
+            return Result<PagedResponse<DetectionEventResponse>>.BadRequest("page must be 1 or more and pageSize from 1 to 100");
+
+        if (!await _db.CanSeeProperty(userId, role, propertyId))
+            return Result<PagedResponse<DetectionEventResponse>>.NotFound("Property not found");
+
+        if (!await _db.Walls.AnyAsync(w => w.Id == wallId && w.PropertyId == propertyId))
+            return Result<PagedResponse<DetectionEventResponse>>.NotFound("Wall not found");
+
+        var query = _db.DetectionEvents.Where(e => e.WallId == wallId);
+        var total = await query.CountAsync();
+        var rows = await query
+            .OrderByDescending(e => e.DetectedAtUtc)
+            .Skip((page - 1) * pageSize)
+            .Take(pageSize)
+            .ToListAsync();
+
+        return Result<PagedResponse<DetectionEventResponse>>.Ok(new PagedResponse<DetectionEventResponse>
+        {
+            Items = rows.Select(ToResponse).ToList(),
+            Page = page,
+            PageSize = pageSize,
+            TotalCount = total
+        });
+    }
+
+    public async Task<List<WorkerJobResponse>> ListJobsAsync()
+    {
+        var walls = await _db.Walls
+            .Include(w => w.Camera)
+            .Where(w => w.DetectionEnabled && w.Camera.IsActive)
+            .OrderBy(w => w.Name)
+            .ToListAsync();
+
+        return walls.Select(w => new WorkerJobResponse
+        {
+            WallId = w.Id,
+            PropertyId = w.PropertyId,
+            WallName = w.Name,
+            CameraId = w.CameraId,
+            CameraName = w.Camera.Name,
+            Threshold = w.DetectionThreshold ?? DefaultThreshold,
+            MediaSourceUrl = $"{RtspBase}/cam-{w.CameraId}",
+            CameraSourceUrl = BuildCameraUrl(w.Camera)
+        }).ToList();
+    }
+
+    // ---- the part shared by the admin's and the worker's frame functions ----
+
+    private async Task<Result<DetectionFrameResponse>> ProcessFrameAsync(
+        Wall wall, byte[] jpeg, int frameIndex, double timestampSeconds)
+    {
         if (jpeg.Length == 0 || jpeg.Length > MaxFrameBytes)
             return Result<DetectionFrameResponse>.BadRequest("The frame must be a JPEG of at most 5 MB");
 
@@ -74,7 +193,7 @@ public class DetectionService : IDetectionService
         try
         {
             // No session yet (first frame, or the backend restarted): open one.
-            session = _sessions.Get(wallId) ?? await OpenSessionAsync(wall, DefaultThreshold);
+            session = _sessions.Get(wall.Id) ?? await OpenSessionAsync(wall, wall.DetectionThreshold ?? DefaultThreshold);
 
             // Remember WHICH gate we took: on recovery `session` is replaced by a new one,
             // and releasing the new session's gate (never taken) would throw.
@@ -89,7 +208,7 @@ public class DetectionService : IDetectionService
                 catch (MlSessionNotFoundException)
                 {
                     // The ML service restarted and forgot the session: open a new one and retry once.
-                    _sessions.Remove(wallId);
+                    _sessions.Remove(wall.Id);
                     session = await OpenSessionAsync(wall, session.Threshold);
                     ml = await _ml.SendFrameAsync(session.MlSessionId, jpeg, frameIndex, timestampSeconds);
                 }
@@ -144,68 +263,6 @@ public class DetectionService : IDetectionService
         return Result<DetectionFrameResponse>.Ok(response);
     }
 
-    public async Task<Result<DetectionStopResponse>> StopAsync(Guid adminId, Guid propertyId, Guid wallId)
-    {
-        if (!await _db.OwnsProperty(adminId, propertyId))
-            return Result<DetectionStopResponse>.NotFound("Property not found");
-
-        if (!await _db.Walls.AnyAsync(w => w.Id == wallId && w.PropertyId == propertyId))
-            return Result<DetectionStopResponse>.NotFound("Wall not found");
-
-        var session = _sessions.Remove(wallId);
-        if (session is null)
-            return Result<DetectionStopResponse>.NotFound("No detection session is running for this wall");
-
-        try
-        {
-            var summary = await _ml.StopSessionAsync(session.MlSessionId);
-            return Result<DetectionStopResponse>.Ok(new DetectionStopResponse
-            {
-                FramesStreamed = summary.FramesStreamed,
-                AlarmCount = summary.AlarmCount,
-                MaxProbability = summary.MaxProbability
-            });
-        }
-        catch (MlSessionNotFoundException)
-        {
-            // The ML service already forgot it (restarted). Our side is closed, which is what matters.
-            return Result<DetectionStopResponse>.Ok(new DetectionStopResponse());
-        }
-        catch (MlException ex)
-        {
-            return FromMlError<DetectionStopResponse>(ex);
-        }
-    }
-
-    public async Task<Result<PagedResponse<DetectionEventResponse>>> ListEventsAsync(
-        Guid userId, string role, Guid propertyId, Guid wallId, int page, int pageSize)
-    {
-        if (page < 1 || pageSize < 1 || pageSize > 100)
-            return Result<PagedResponse<DetectionEventResponse>>.BadRequest("page must be 1 or more and pageSize from 1 to 100");
-
-        if (!await _db.CanSeeProperty(userId, role, propertyId))
-            return Result<PagedResponse<DetectionEventResponse>>.NotFound("Property not found");
-
-        if (!await _db.Walls.AnyAsync(w => w.Id == wallId && w.PropertyId == propertyId))
-            return Result<PagedResponse<DetectionEventResponse>>.NotFound("Wall not found");
-
-        var query = _db.DetectionEvents.Where(e => e.WallId == wallId);
-        var total = await query.CountAsync();
-        var rows = await query
-            .OrderByDescending(e => e.DetectedAtUtc)
-            .Skip((page - 1) * pageSize)
-            .Take(pageSize)
-            .ToListAsync();
-
-        return Result<PagedResponse<DetectionEventResponse>>.Ok(new PagedResponse<DetectionEventResponse>
-        {
-            Items = rows.Select(ToResponse).ToList(),
-            Page = page,
-            PageSize = pageSize,
-            TotalCount = total
-        });
-    }
-
     // ---- helpers ----
 
     private async Task<DetectionSession> OpenSessionAsync(Wall wall, double threshold)
@@ -229,6 +286,24 @@ public class DetectionService : IDetectionService
 
         try { await _ml.StopSessionAsync(old.MlSessionId); }
         catch (MlException) { }
+    }
+
+    // The camera's own address with its login, e.g. rtsp://user:pass@192.168.1.20:554/stream1
+    // MobileApp (IP Webcam) streams over http; Rtsp and Onvif cameras are read over rtsp.
+    private static string BuildCameraUrl(Camera c)
+    {
+        var scheme = c.SourceType == "MobileApp" ? "http" : "rtsp";
+
+        var login = "";
+        if (c.Username is not null)
+        {
+            login = Uri.EscapeDataString(c.Username);
+            if (c.Password is not null)
+                login += ":" + Uri.EscapeDataString(c.Password);
+            login += "@";
+        }
+
+        return $"{scheme}://{login}{c.Host}:{c.Port}{c.StreamPath}";
     }
 
     private static DetectedPersonDto ToPerson(MlPerson p, IEnumerable<WallCell> cells)

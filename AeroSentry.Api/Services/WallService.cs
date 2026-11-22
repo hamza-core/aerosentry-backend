@@ -186,6 +186,7 @@ public class WallService : IWallService
         CameraGridRow = w.CameraGridRow,
         CameraGridCol = w.CameraGridCol,
         CreatedAtUtc = w.CreatedAtUtc,
+        DetectionEnabled = w.DetectionEnabled,
         TotalLengthMeters = w.Cells.Sum(c => c.LengthMeters),
         Cells = WallCellService.ToResponses(w.Cells, w.LaserGrid?.SquareSizeMeters ?? 0)
     };

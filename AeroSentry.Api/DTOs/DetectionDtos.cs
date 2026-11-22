@@ -70,6 +70,24 @@ public class DetectionEventResponse
     public DateTime DetectedAtUtc { get; set; }
 }
 
+// One wall the ingest worker must watch.
+public class WorkerJobResponse
+{
+    public Guid WallId { get; set; }
+    public Guid PropertyId { get; set; }
+    public string WallName { get; set; } = string.Empty;
+    public Guid CameraId { get; set; }
+    public string CameraName { get; set; } = string.Empty;
+    public double Threshold { get; set; }
+
+    // The stream as republished by the media server (MediaMTX). The camera's password is not in it.
+    public string MediaSourceUrl { get; set; } = string.Empty;
+
+    // The camera's own address WITH its username and password, for when there is no media server.
+    // Only the worker (with its key) ever receives this.
+    public string CameraSourceUrl { get; set; } = string.Empty;
+}
+
 public class MlHealthResponse
 {
     public bool Available { get; set; }

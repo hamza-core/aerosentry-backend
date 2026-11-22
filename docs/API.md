@@ -91,4 +91,14 @@ Route body (a list, in drone visiting order): `[{ "row": 0, "col": 0 }, ...]`.
 | Stored alarms, newest first | `GET detection/list-events?propertyId=&wallId=&page=1&pageSize=20` | any |
 | Is the ML service running? | `GET ml/health` | Admin |
 
+`detection/start` switches a wall **on** (saved in the database, so it survives a backend restart; the wall then shows
+`detectionEnabled: true`) and `detection/stop` switches it **off**. The ingest worker watches every wall that is switched on.
+
+## Worker (only for the ingest worker program, not for apps)
+Authenticated with the header `X-Worker-Key: <Worker:ApiKey>`. A user's JWT does not work here, and the key works nowhere else.
+| Function | Method and path |
+|---|---|
+| Which walls must be watched now (with stream addresses) | `GET worker/get-jobs` |
+| Send one sampled frame (multipart `frame`; query `wallId`, `frameIndex`, `timestampSeconds`) | `POST worker/send-frame?wallId=` |
+
 Paged lists return `{ "items": [], "page": 1, "pageSize": 20, "totalCount": 0 }`.
