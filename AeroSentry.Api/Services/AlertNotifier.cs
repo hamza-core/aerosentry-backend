@@ -17,7 +17,7 @@ public class AlertNotifier : IAlertNotifier
         _hub = hub;
     }
 
-    public async Task NotifyAsync(AlertResponse alert)
+    public async Task NotifyAsync(AlertResponse alert, string eventName)
     {
         // Who may see this property's alerts: its owner, and every ACTIVE guard assigned to it.
         // Worked out now (not when a client connects), so a guard assigned or suspended a minute ago is handled right.
@@ -35,6 +35,6 @@ public class AlertNotifier : IAlertNotifier
         if (recipients.Count == 0)
             return;
 
-        await _hub.Clients.Users(recipients).SendAsync("AlertRaised", alert);
+        await _hub.Clients.Users(recipients).SendAsync(eventName, alert);
     }
 }

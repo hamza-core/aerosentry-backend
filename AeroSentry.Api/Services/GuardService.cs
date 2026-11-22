@@ -1,6 +1,7 @@
 using AeroSentry.Api.Data;
 using AeroSentry.Api.Data.Entities;
 using AeroSentry.Api.DTOs;
+using AeroSentry.Api.Hubs;
 using Microsoft.AspNetCore.Identity;
 using Microsoft.EntityFrameworkCore;
 
@@ -12,10 +13,12 @@ public class GuardService
 {
     private readonly AppDbContext _db;
     private readonly PasswordHasher<User> _hasher = new();
+    private readonly ConnectionTracker _connections;
 
-    public GuardService(AppDbContext db)
+    public GuardService(AppDbContext db, ConnectionTracker connections)
     {
         _db = db;
+        _connections = connections;
     }
 
     // Returns null when the email is already taken.
@@ -70,6 +73,10 @@ public class GuardService
         guard.IsActive = status == "Active";
         await _db.SaveChangesAsync();
 
+        // A suspended guard must stop receiving live alerts NOW, not at their next reconnect.
+        if (!guard.IsActive)
+            _connections.Disconnect(guard.Id);
+
         return ToResponse(guard);
     }
 
@@ -82,6 +89,8 @@ public class GuardService
 
         _db.Users.Remove(guard);   // its PropertyGuard rows are removed by the cascade rule
         await _db.SaveChangesAsync();
+
+        _connections.Disconnect(id);
         return true;
     }
 

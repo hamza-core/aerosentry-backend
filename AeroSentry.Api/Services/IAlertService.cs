@@ -13,4 +13,11 @@ public interface IAlertService
     Task<Result<PagedResponse<AlertResponse>>> ListAsync(Guid userId, string role, Guid? propertyId, string? status, int page, int pageSize);
 
     Task<Result<AlertResponse>> GetAsync(Guid userId, string role, Guid alertId);
+
+    // Acknowledge / mark false alarm / close / escalate (action = one of AlertTransitions' names).
+    // 409 when the alert's current status does not allow it. Pushes "AlertUpdated" to the apps.
+    Task<Result<AlertResponse>> ChangeStatusAsync(Guid userId, string role, Guid alertId, string action, string? note);
+
+    // The alert's history: who did what and when, oldest first.
+    Task<Result<List<AlertActionResponse>>> ListActionsAsync(Guid userId, string role, Guid alertId);
 }

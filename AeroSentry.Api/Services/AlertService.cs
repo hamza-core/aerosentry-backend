@@ -38,7 +38,7 @@ public class AlertService : IAlertService
         // The alert is safely stored. A failed push (nobody listening, hub hiccup) must not fail the frame.
         try
         {
-            await _notifier.NotifyAsync(response);
+            await _notifier.NotifyAsync(response, "AlertRaised");
         }
         catch (Exception ex)
         {
@@ -46,6 +46,87 @@ public class AlertService : IAlertService
         }
 
         return response;
+    }
+
+    public async Task<Result<AlertResponse>> ChangeStatusAsync(
+        Guid userId, string role, Guid alertId, string action, string? note)
+    {
+        var rule = AlertTransitions.Rules[action];
+
+        // Only alerts of properties this user can see.
+        var visible = _db.VisibleProperties(userId, role).Select(p => p.Id);
+        if (!await _db.Alerts.AnyAsync(a => a.Id == alertId && visible.Contains(a.PropertyId)))
+            return Result<AlertResponse>.NotFound("Alert not found");
+
+        var user = await _db.Users.AsNoTracking().FirstAsync(u => u.Id == userId);
+
+        await using var tx = await _db.Database.BeginTransactionAsync();
+
+        var current = await _db.Alerts.Where(a => a.Id == alertId).Select(a => a.Status).FirstAsync();
+        if (!rule.AllowedFrom.Contains(current))
+            return Result<AlertResponse>.Conflict($"This alert is {current}, so it cannot be changed with '{action}'");
+
+        // Compare-and-set: change the status only if it is STILL what we just read. If two people press a
+        // button at the same moment, exactly one wins and the other gets a 409.
+        var to = rule.To;
+        var changed = await _db.Alerts
+            .Where(a => a.Id == alertId && a.Status == current)
+            .ExecuteUpdateAsync(s => s.SetProperty(a => a.Status, to));
+        if (changed == 0)
+            return Result<AlertResponse>.Conflict("Someone else just changed this alert. Reload it and try again");
+
+        _db.AlertActions.Add(new AlertAction
+        {
+            AlertId = alertId,
+            Action = action,
+            FromStatus = current,
+            ToStatus = to,
+            ByUserId = userId,
+            ByName = user.FullName,
+            ByRole = user.Role,
+            Note = string.IsNullOrWhiteSpace(note) ? null : note.Trim()
+        });
+        await _db.SaveChangesAsync();
+        await tx.CommitAsync();
+
+        var response = await LoadResponseAsync(alertId);
+
+        try
+        {
+            await _notifier.NotifyAsync(response, "AlertUpdated");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "Could not push the update of alert {Code} over SignalR", response.IncidentCode);
+        }
+
+        return Result<AlertResponse>.Ok(response);
+    }
+
+    public async Task<Result<List<AlertActionResponse>>> ListActionsAsync(Guid userId, string role, Guid alertId)
+    {
+        var visible = _db.VisibleProperties(userId, role).Select(p => p.Id);
+        if (!await _db.Alerts.AnyAsync(a => a.Id == alertId && visible.Contains(a.PropertyId)))
+            return Result<List<AlertActionResponse>>.NotFound("Alert not found");
+
+        var actions = await _db.AlertActions
+            .Where(a => a.AlertId == alertId)
+            .OrderBy(a => a.AtUtc)
+            .ToListAsync();
+
+        return Result<List<AlertActionResponse>>.Ok(actions.Select(a => new AlertActionResponse
+        {
+            Id = a.Id,
+            AlertId = a.AlertId,
+            Action = a.Action,
+            FromStatus = a.FromStatus,
+            ToStatus = a.ToStatus,
+            ByUserId = a.ByUserId,
+            ByName = a.ByName,
+            ByRole = a.ByRole,
+            Note = a.Note,
+            AtUtc = a.AtUtc
+        }).ToList());
     }
 
     public async Task<Result<PagedResponse<AlertResponse>>> ListAsync(

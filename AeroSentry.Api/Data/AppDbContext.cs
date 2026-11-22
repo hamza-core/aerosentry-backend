@@ -19,6 +19,7 @@ public class AppDbContext : DbContext
     public DbSet<WallCellSquare> WallCellSquares => Set<WallCellSquare>();
     public DbSet<DetectionEvent> DetectionEvents => Set<DetectionEvent>();
     public DbSet<Alert> Alerts => Set<Alert>();
+    public DbSet<AlertAction> AlertActions => Set<AlertAction>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -181,6 +182,24 @@ public class AppDbContext : DbContext
                   .WithMany()
                   .HasForeignKey(a => a.WallId)
                   .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<AlertAction>(entity =>
+        {
+            entity.Property(a => a.Action).HasMaxLength(30);
+            entity.Property(a => a.FromStatus).HasMaxLength(20);
+            entity.Property(a => a.ToStatus).HasMaxLength(20);
+            entity.Property(a => a.ByName).HasMaxLength(100);
+            entity.Property(a => a.ByRole).HasMaxLength(20);
+            entity.Property(a => a.Note).HasMaxLength(500);
+
+            // An alert's history is read oldest first.
+            entity.HasIndex(a => new { a.AlertId, a.AtUtc });
+
+            entity.HasOne(a => a.Alert)
+                  .WithMany()
+                  .HasForeignKey(a => a.AlertId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<PropertyGuard>(entity =>

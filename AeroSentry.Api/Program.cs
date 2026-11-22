@@ -37,6 +37,7 @@ builder.Services.AddScoped<IDetectionService, DetectionService>();
 builder.Services.AddScoped<IAlertService, AlertService>();
 builder.Services.AddScoped<IAlertNotifier, AlertNotifier>();
 builder.Services.AddSignalR();
+builder.Services.AddSingleton<ConnectionTracker>();   // open hub connections per user, so they can be closed
 builder.Services.AddSingleton<IUserIdProvider, SubUserIdProvider>();   // "send to user X" = the token's sub claim
 
 // CORS: browsers (the ReactJS client) may only call the API from origins listed here.
@@ -107,6 +108,10 @@ app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapControllers();
-app.MapHub<AlertsHub>("/hubs/alerts");
+app.MapHub<AlertsHub>("/hubs/alerts", options =>
+{
+    // When the token of an open connection expires, close the connection (the app logs in again).
+    options.CloseOnAuthenticationExpiration = true;
+});
 
 app.Run();

@@ -1,5 +1,8 @@
+using AeroSentry.Api.DTOs;
 using AeroSentry.Api.Services;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.AspNetCore.Mvc.ModelBinding;
 
 namespace AeroSentry.Api.Controllers;
 
@@ -23,4 +26,34 @@ public class AlertsController : ApiControllerBase
     [HttpGet("get")]
     public async Task<IActionResult> Get(Guid alertId) =>
         FromResult(await _alerts.GetAsync(CallerId, CallerRole, alertId));
+
+    // ---- alert actions (admins and assigned guards; escalate is admin only) ----
+    // Each returns the updated alert and pushes "AlertUpdated" over SignalR. Optional body: { "note": "..." }.
+    // 409 when the alert's status does not allow the action (see the rules in AlertTransitions).
+
+    // POST /api/v1/alerts/acknowledge?alertId=...      New -> Acknowledged
+    [HttpPost("acknowledge")]
+    public async Task<IActionResult> Acknowledge(Guid alertId, [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] AlertActionRequest? request = null) =>
+        FromResult(await _alerts.ChangeStatusAsync(CallerId, CallerRole, alertId, AlertTransitions.Acknowledge, request?.Note));
+
+    // POST /api/v1/alerts/mark-false-alarm?alertId=... New or Acknowledged -> FalseAlarm
+    [HttpPost("mark-false-alarm")]
+    public async Task<IActionResult> MarkFalseAlarm(Guid alertId, [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] AlertActionRequest? request = null) =>
+        FromResult(await _alerts.ChangeStatusAsync(CallerId, CallerRole, alertId, AlertTransitions.MarkFalseAlarm, request?.Note));
+
+    // POST /api/v1/alerts/close?alertId=...            New, Acknowledged or Escalated -> Closed
+    [HttpPost("close")]
+    public async Task<IActionResult> Close(Guid alertId, [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] AlertActionRequest? request = null) =>
+        FromResult(await _alerts.ChangeStatusAsync(CallerId, CallerRole, alertId, AlertTransitions.Close, request?.Note));
+
+    // POST /api/v1/alerts/escalate?alertId=...         New or Acknowledged -> Escalated (admin only)
+    [HttpPost("escalate")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> Escalate(Guid alertId, [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] AlertActionRequest? request = null) =>
+        FromResult(await _alerts.ChangeStatusAsync(CallerId, CallerRole, alertId, AlertTransitions.Escalate, request?.Note));
+
+    // GET /api/v1/alerts/list-actions?alertId=...      who did what, oldest first
+    [HttpGet("list-actions")]
+    public async Task<IActionResult> ListActions(Guid alertId) =>
+        FromResult(await _alerts.ListActionsAsync(CallerId, CallerRole, alertId));
 }
