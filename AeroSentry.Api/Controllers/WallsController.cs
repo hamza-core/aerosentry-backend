@@ -47,6 +47,15 @@ public class WallsController : ApiControllerBase
     public async Task<IActionResult> Delete(Guid propertyId, Guid wallId) =>
         NoContentFromResult(await _walls.DeleteAsync(CallerId, propertyId, wallId));
 
+    // PUT /api/v1/walls/save-annotation?propertyId=...&wallId=...      (Admin)
+    // Saves only the wall annotation: the admin draws 2 top points and 2 bottom points on a camera picture
+    // (get one with cameras/get-snapshot, or capture a frame of the playback stream) and sends them here
+    // with the picture's size. A running detection picks the new lines up at once.
+    [HttpPut("save-annotation")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> SaveAnnotation(Guid propertyId, Guid wallId, WallAnnotationRequest request) =>
+        FromResult(await _walls.SaveAnnotationAsync(CallerId, propertyId, wallId, request));
+
     // ---- cells, laser routes and validation of one wall ----
 
     // PUT /api/v1/walls/save-cells?propertyId=...&wallId=...    body: the full list of cells

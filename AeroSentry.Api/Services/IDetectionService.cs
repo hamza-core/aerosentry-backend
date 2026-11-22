@@ -13,6 +13,10 @@ public interface IDetectionService
     // Turns watching off. Safe to call after a backend restart (the database still says "on").
     Task<Result<DetectionStopResponse>> StopAsync(Guid adminId, Guid propertyId, Guid wallId);
 
+    // Forgets the wall's ML session (and tells the ML service). The next frame opens a new one with the
+    // wall's current annotation. Called when the annotation changes. Never throws.
+    Task ResetSessionAsync(Guid wallId);
+
     Task<Result<PagedResponse<DetectionEventResponse>>> ListEventsAsync(Guid userId, string role, Guid propertyId, Guid wallId, int page, int pageSize);
 
     // ---- for the ingest worker (it has a machine key, not a user login) ----

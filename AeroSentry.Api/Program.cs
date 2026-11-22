@@ -30,6 +30,12 @@ builder.Services.AddHttpClient<IMlClient, MlClient>(client =>
     client.BaseAddress = new Uri(builder.Configuration["Ml:BaseUrl"] ?? "http://localhost:8010");
     client.Timeout = TimeSpan.FromSeconds(15);
 });
+// A separate typed client takes a still picture from IP Webcam phones (for drawing the wall annotation).
+builder.Services.AddHttpClient<ICameraSnapshotClient, CameraSnapshotClient>(client =>
+{
+    client.Timeout = TimeSpan.FromSeconds(6);
+    client.MaxResponseContentBufferSize = 10 * 1024 * 1024;
+});
 builder.Services.AddSingleton<DetectionSessions>();   // one shared wall -> ML session map
 builder.Services.AddScoped<IDetectionService, DetectionService>();
 
@@ -45,7 +51,9 @@ builder.Services.AddSingleton<IUserIdProvider, SubUserIdProvider>();   // "send 
 var corsOrigins = builder.Configuration.GetSection("Cors:Origins").Get<string[]>()
                   ?? new[] { "http://localhost:3000", "http://localhost:5173" };
 builder.Services.AddCors(options => options.AddDefaultPolicy(policy =>
-    policy.WithOrigins(corsOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials()));
+    policy.WithOrigins(corsOrigins).AllowAnyHeader().AllowAnyMethod().AllowCredentials()
+          // A browser may only read these two response headers (the snapshot's size) if we say so.
+          .WithExposedHeaders("X-Frame-Width", "X-Frame-Height")));
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>

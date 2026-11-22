@@ -3,10 +3,24 @@ AeroSentry ingest worker.
 
 What it does, in one paragraph:
     Every few seconds it asks the backend "which walls must I watch?" (GET worker/get-jobs).
-    For each wall it opens the camera stream (via the media server, or the camera directly),
-    reads the video, keeps ONLY EVERY 5TH FRAME (the rate the ML model was trained on) and posts
-    that frame to the backend (POST worker/send-frame). The backend calls the ML service, works
-    out the wall cell and stores the alarm. This program never talks to the ML service itself.
+    For each wall it opens the camera stream (via the media server, or the camera directly), reads
+    the video and keeps frames at a steady rate in REAL TIME (6 per second by default, see below), and
+    posts each kept frame to the backend (POST worker/send-frame). The backend calls the ML service,
+    works out the wall cell and stores the alarm. This program never talks to the ML service itself.
+
+Why 5 frames per second, whatever the camera's frame rate:
+    The model was trained on one frame in every 5 of the dataset's videos. Measured on the training set
+    (wall-intrusion-detection/dataset/train, 703 videos): 65% are 25 fps, 20% are 30 fps, 14% are 24 fps, so that is
+    5.0 samples per second of real time for the typical clip (4.8 to 6.0 for the others, 5.2 on average).
+    A fixed "every 5th frame" gives a 15 fps phone only 3 per second and a 60 fps camera 12. So frames are chosen by
+    TIME, and any camera gives about 5 per second. A camera slower than 5 fps simply has every frame used.
+
+What the ML service can really do:
+    In live mode it re-runs its whole trailing window (up to 60 frames) through the bidirectional LSTM on every frame.
+    Measured on the development Mac: about 5.6 frames/s at first, falling to about 2-2.5 frames/s once the window is full.
+    So the worker PACES itself: it measures how long a frame takes (backend + ML) and spaces the frames evenly at the
+    fastest rate that can be kept up, never above the sample rate. It logs a warning when that is below the trained rate,
+    because the model then sees frames further apart than in training.
 
 Run (from this folder, in the environment that has opencv and requests):
     WORKER_KEY=<same value as Worker:ApiKey in appsettings.json> python worker.py
@@ -26,14 +40,19 @@ import requests
 
 log = logging.getLogger("worker")
 
+# Frames are spaced PACE_MARGIN x the measured time one frame takes (backend + ML), so a slightly slower answer does not
+# collide with the next frame. Higher = more even spacing, lower rate.
+PACE_MARGIN = 1.25
+
 
 # ---------------------------------------------------------------------------
-# One thread per wall: read the stream, keep every Nth frame, send it
+# One thread per wall: read the stream, keep frames at the sample rate, send them
 # ---------------------------------------------------------------------------
 class StreamWatcher(threading.Thread):
     def __init__(self, job, source, args):
         super().__init__(daemon=True, name="wall-" + job["wallName"])
         self.job = job
+        self.name_ = job["wallName"]
         self.source = source
         self.args = args
         self.stop_event = threading.Event()
@@ -41,62 +60,119 @@ class StreamWatcher(threading.Thread):
         self._busy = threading.Lock()  # held while one frame is being sent
         self.sent = 0
         self.dropped = 0
+        self.alarms = 0
+        self.round_trip = None         # smoothed seconds per frame (backend + ML), measured on every send
 
     def stop(self):
         self.stop_event.set()
 
     def run(self):
         is_file = os.path.exists(self.source)
+        base_interval = 1.0 / self.args.sample_rate
         backoff = 2
         while not self.stop_event.is_set():
             cap = cv2.VideoCapture(self.source)
             if not cap.isOpened():
-                log.warning("[%s] cannot open the stream, retrying in %ds", self.job["wallName"], backoff)
+                log.warning("[%s] cannot open the stream, retrying in %ds", self.name_, backoff)
                 self.stop_event.wait(backoff)
                 backoff = min(backoff * 2, 30)
                 continue
 
             backoff = 2
-            fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
-            log.info("[%s] watching (%s, %.1f fps, one frame in %d)", self.job["wallName"],
-                     "file" if is_file else "stream", fps, self.args.stride)
+            file_fps = (cap.get(cv2.CAP_PROP_FPS) or 25.0) if is_file else None
+            log.info("[%s] watching a %s, keeping %.1f frames per second", self.name_,
+                     "file" if is_file else "live stream", self.args.sample_rate)
 
             frame_number = 0
-            started = time.time()
+            started = time.monotonic()
+            next_due = None                   # the time (in seconds) the next frame must be kept
+            seen = 0                          # frames the camera delivered since the last report
+            sent_mark, dropped_mark = self.sent, self.dropped
+            report_mark = time.monotonic()
+            shape_checked = False
+            warned_slow = False
+            warned_ml = False
+
             while not self.stop_event.is_set():
                 ok, frame = cap.read()
                 if not ok:
                     break
                 frame_number += 1
+                seen += 1
 
-                # A file is read as fast as the disk allows; slow it down to real time like a camera.
                 if is_file:
-                    due = started + frame_number / fps
-                    time.sleep(max(0.0, due - time.time()))
+                    # A file is read as fast as the disk allows; slow it to real time like a camera.
+                    t = frame_number / file_fps
+                    time.sleep(max(0.0, started + t - time.monotonic()))
+                else:
+                    # A live camera: the moment the frame arrived (cap.read() waits for the next frame).
+                    t = time.monotonic() - started
 
-                if frame_number % self.args.stride != 0:
-                    continue
+                if not shape_checked:
+                    shape_checked = True
+                    self._check_shape(frame)
 
-                # Never let a slow answer pile frames up: if the last frame is still being sent, skip this one.
-                if not self._busy.acquire(blocking=False):
-                    self.dropped += 1
-                    continue
+                if next_due is None:
+                    next_due = t
+                if t >= next_due:
+                    # Pace: never faster than the sample rate, and never faster than a frame takes to be analysed.
+                    interval = max(base_interval, PACE_MARGIN * (self.round_trip or 0.0))
+                    next_due += interval
+                    if t - next_due > 2 * interval:
+                        next_due = t + interval   # the stream stalled for a while: do not burst to catch up
 
-                jpeg = cv2.imencode(".jpg", frame)[1].tobytes()
-                timestamp = frame_number / fps if is_file else time.time() - started
-                threading.Thread(target=self._send, args=(jpeg, frame_number, timestamp), daemon=True).start()
+                    # Never let a slow answer pile frames up: if the last frame is still being sent, skip this one.
+                    if self._busy.acquire(blocking=False):
+                        jpeg = cv2.imencode(".jpg", frame)[1].tobytes()
+                        timestamp = t
+                        threading.Thread(target=self._send, args=(jpeg, frame_number, timestamp), daemon=True).start()
+                    else:
+                        self.dropped += 1
+
+                now = time.monotonic()
+                if now - report_mark >= self.args.report_seconds:
+                    span = now - report_mark
+                    sent_now, dropped_now = self.sent - sent_mark, self.dropped - dropped_mark
+                    camera_fps = seen / span
+                    log.info("[%s] camera %.1f fps | sent %.1f/s | dropped %d | analysis %.0f ms/frame | alarms so far %d", self.name_,
+                             camera_fps, sent_now / span, dropped_now, (self.round_trip or 0) * 1000, self.alarms)
+                    if self.round_trip and self.round_trip * PACE_MARGIN > base_interval * 1.3 and not warned_ml:
+                        log.warning("[%s] analysing a frame takes %.0f ms, so only about %.1f frames/s can be kept up "
+                                    "(the model was trained at about %.0f/s). Detection works, but on frames further apart "
+                                    "than in training. A faster ML machine removes this.", self.name_,
+                                    self.round_trip * 1000, 1 / (self.round_trip * PACE_MARGIN), self.args.sample_rate)
+                        warned_ml = True
+                    if camera_fps < self.args.sample_rate * 0.9 and not warned_slow and not is_file:
+                        log.warning("[%s] the camera delivers only %.1f fps, below the sample rate %.1f: every frame is used",
+                                    self.name_, camera_fps, self.args.sample_rate)
+                        warned_slow = True
+                    if dropped_now > 0.2 * (sent_now + dropped_now) and sent_now + dropped_now > 5:
+                        log.warning("[%s] %d of %d frames were skipped because the backend or the ML service is too slow",
+                                    self.name_, dropped_now, sent_now + dropped_now)
+                    seen, sent_mark, dropped_mark, report_mark = 0, self.sent, self.dropped, now
 
             cap.release()
 
             if is_file and not self.args.loop:
-                log.info("[%s] end of file (%d frames sent, %d dropped)", self.job["wallName"], self.sent, self.dropped)
+                log.info("[%s] end of file (%d frames sent, %d dropped)", self.name_, self.sent, self.dropped)
                 self.finished = True
                 return
             if not self.stop_event.is_set():
-                log.warning("[%s] stream ended, reconnecting", self.job["wallName"])
+                log.warning("[%s] stream ended, reconnecting", self.name_)
                 self.stop_event.wait(2)
 
+    def _check_shape(self, frame):
+        """The annotation is a fraction of the picture, so the shape (not the size) must match."""
+        height, width = frame.shape[:2]
+        annotated_w, annotated_h = self.job.get("frameWidth") or 0, self.job.get("frameHeight") or 0
+        if annotated_w and annotated_h:
+            real, wanted = width / height, annotated_w / annotated_h
+            if abs(real - wanted) / wanted > 0.02:
+                log.warning("[%s] the camera sends %dx%d but the wall was annotated on %dx%d: the wall lines will not line up. "
+                            "Annotate the wall again on this camera's picture.", self.name_, width, height, annotated_w, annotated_h)
+
     def _send(self, jpeg, frame_number, timestamp):
+        began = time.monotonic()
         try:
             response = requests.post(
                 self.args.backend + "/api/v1/worker/send-frame",
@@ -105,18 +181,21 @@ class StreamWatcher(threading.Thread):
                 headers={"X-Worker-Key": self.args.key},
                 timeout=30,
             )
+            took = time.monotonic() - began
+            self.round_trip = took if self.round_trip is None else 0.7 * self.round_trip + 0.3 * took
             if response.status_code == 200:
                 self.sent += 1
                 result = response.json()
                 if result.get("alarmRaised"):
-                    log.warning("[%s] ALARM  probability=%.2f  cell=%s  event=%s", self.job["wallName"],
-                                result["probability"], result.get("cellLabel") or "outside every cell", result.get("eventId"))
+                    self.alarms += 1
+                    log.warning("[%s] ALARM  probability=%.2f  cell=%s  %s", self.name_, result["probability"],
+                                result.get("cellLabel") or "outside every cell", result.get("incidentCode") or "")
             elif response.status_code == 409:
-                log.info("[%s] the wall was switched off", self.job["wallName"])
+                log.info("[%s] the wall was switched off", self.name_)
             else:
-                log.error("[%s] backend answered %d: %s", self.job["wallName"], response.status_code, response.text[:200])
+                log.error("[%s] backend answered %d: %s", self.name_, response.status_code, response.text[:200])
         except requests.RequestException as exc:
-            log.error("[%s] backend not reachable: %s", self.job["wallName"], exc)
+            log.error("[%s] backend not reachable: %s", self.name_, exc)
         finally:
             self._busy.release()
 
@@ -146,8 +225,11 @@ def main():
     parser.add_argument("--key", default=os.environ.get("WORKER_KEY", ""), help="or set WORKER_KEY")
     parser.add_argument("--source", choices=["media", "camera"], default="media",
                         help="media = read the stream from the media server (default); camera = read the camera directly")
-    parser.add_argument("--stride", type=int, default=5, help="keep one frame in N (the model was trained on 5)")
+    parser.add_argument("--sample-rate", type=float, default=5.0,
+                        help="most frames per second to analyse, in real time. The model was trained on about 5 (one in 5 of mostly 25 fps). "
+                             "The worker goes slower by itself when the ML service cannot keep up")
     parser.add_argument("--poll", type=float, default=5.0, help="seconds between asking the backend for jobs")
+    parser.add_argument("--report-seconds", type=float, default=30.0, help="how often to print the rate report")
     parser.add_argument("--override", action="append", default=[], metavar="WALLID=SOURCE",
                         help="for tests: read this video file or URL instead, for one wall (repeatable)")
     parser.add_argument("--loop", action="store_true", help="restart a video file when it ends")
@@ -156,10 +238,12 @@ def main():
 
     if not args.key:
         sys.exit("Set the worker key: WORKER_KEY=... or --key ...")
+    if not 0.5 <= args.sample_rate <= 30:
+        sys.exit("--sample-rate must be between 0.5 and 30")
     args.overrides = dict(item.split("=", 1) for item in args.override)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-7s %(message)s", datefmt="%H:%M:%S")
-    log.info("Ingest worker started. Backend: %s  Source: %s  Stride: %d", args.backend, args.source, args.stride)
+    log.info("Ingest worker started. Backend: %s  Source: %s  Sample rate: %.1f frames/s", args.backend, args.source, args.sample_rate)
 
     watchers = {}   # wallId -> StreamWatcher
     started = time.time()
@@ -175,7 +259,7 @@ def main():
                 # Stop watching walls that were switched off.
                 for wall_id in list(watchers):
                     if wall_id not in jobs:
-                        log.info("Stop watching %s", watchers[wall_id].job["wallName"])
+                        log.info("Stop watching %s", watchers[wall_id].name_)
                         watchers.pop(wall_id).stop()
 
                 # Start (or restart) watching walls that must be watched.

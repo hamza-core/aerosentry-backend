@@ -14,4 +14,8 @@ public interface ICameraService
 
     // null = the property is not this admin's
     Task<CameraTestResponse?> TestAsync(Guid adminId, Guid propertyId, CameraRequest request);
+
+    // One still picture from the camera, with its size, for drawing the wall annotation on.
+    // Works for MobileApp (IP Webcam) cameras; 400 for the others, 503 when the camera does not answer.
+    Task<Result<CameraSnapshot>> GetSnapshotAsync(Guid adminId, Guid propertyId, Guid cameraId);
 }

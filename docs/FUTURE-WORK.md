@@ -39,14 +39,49 @@ What is NOT built yet, and what must be decided before it can be. Update this fi
 ### Planned backend pieces
 `Drone` and `FlightLog` tables, a drone service, status pushed to the apps over SignalR (`DroneStatusChanged`), flight logs per mission.
 
+## ML service speed: a decision for you and your supervisor
+
+**Finding.** In live mode the ML service re-runs its whole 60-frame window through the bidirectional LSTM on every frame.
+Measured on the development Mac, one frame at a time, 478x850 JPEG, ML service alone:
+
+| | frames 1-20 | frames 21-60 | window full (61+) |
+|---|---|---|---|
+| ML service as approved (GPU / `mps`) | 177-362 ms | 359-403 ms | 422-513 ms = **2.0-2.4 frames/s** |
+| Same code forced to CPU | 236 ms (warm-up) | 77 ms | 72 ms = **about 14 frames/s** |
+
+The model was trained at about **5 samples per second** (see `ingest-worker/README.md`). On the GPU the live detection therefore
+runs at about half the trained rate or less; with several walls it is shared between them. Through the backend the speed is the
+same as the ML service alone (the backend adds almost nothing).
+
+**Same answers on the CPU.** A throwaway copy of the ML folder with the device forced to CPU was compared with the original on 7 clips
+(1 clip of your own plus 6 from the test set, crossing and normal): 292 frames, largest probability difference 0.00000 (the service rounds to 4
+decimals), alarms on exactly the same frames, same decisions, same people and boxes. The original ML folder was not modified.
+
+**What would change.** Two lines: in `backend/app/services/ml_inference.py` the function `_select_device()` should return the CPU, and in
+`extract_every_5_frames.py` the line `DEVICE = "mps" if ... else "cpu"` should be `"cpu"`. The model files and all logic stay the same.
+Real phone (30 fps) measured against the CPU copy: analysed at 4.5 to 5.0 frames/s at about 95 ms per frame, instead of 1.2 to 3.1.
+
+**Why it is not done.** The ML service is frozen and approved by the supervisor. Options: (1) keep the original and accept the
+slower analysis (the worker paces itself and warns); (2) make a **copy** of the folder (for example `standalone_every_5_frames_cpu`)
+with those two lines changed and run that one; (3) change the approved folder after telling the supervisor. The throwaway copy used
+for the measurements is in the session's scratch folder and can be put into your project folder on request.
+Not measured: other Macs, a machine with an NVIDIA GPU (the code only knows `mps` and `cpu`), or two or more walls at once.
+
+## Tested with a real IP Webcam phone
+`192.168.0.107:8080` ("IP Webcam Server 0.4"): no login, `/shot.jpg` 640x480 in about 0.3 s, `/video` MJPEG at about 30 fps.
+Backend camera test, snapshot, worker reading the stream directly (`--source camera`), ML analysis and an alert were all checked.
+The annotation used in that test was a placeholder, so its alarm cell ("outside every cell") means nothing. Still untested:
+phone login enabled, phone on weak Wi-Fi for hours, phone sleeping, your CCTV cameras and NVR (RTSP), and MediaMTX.
+
 ## Other things not done yet
 
 | Item | Note |
 |---|---|
 | Merge repeated alarms | Today one ML alarm = one alert. A repeat on the same wall within a time window could join the same incident. Decide after seeing real footage. |
 | Real cameras, NVR and MediaMTX | Only tested with a video file. Needs the exact RTSP URLs of the NVR and cameras, and a `mediamtx.yml` entry per camera (path name `cam-<cameraId>`). |
-| IP Webcam (phone) | Serves MJPEG over HTTP. The worker can read it directly with `--source camera`; MediaMTX needs RTSP mode or ffmpeg. Not tested. |
-| Frame rate | The model was trained on 1 frame in 5 of 30 fps (about 6 per second). A camera at a different frame rate changes what the model sees. Not tuned. |
+| IP Webcam (phone) through MediaMTX | Tested directly (`--source camera`). MediaMTX needs the phone's RTSP mode or ffmpeg (not installed on this Mac). Not tested. |
+| Snapshot for RTSP / ONVIF cameras | `cameras/get-snapshot` only works for IP Webcam phones (the backend cannot decode RTSP without ffmpeg). For the others the app captures a frame from the playback stream. |
+| Frame rate | Done: sampled by time at 5/s (the measured training rate), paced to what the ML service can analyse. Open: ML service speed, see the section above. |
 | Feature 9: authorized people (face ID) | Not started. Face service is a separate ML service. |
 | Feature 10: reports and settings | Not started. Includes the automatic response policy and alert notification preferences shown in the design. |
 | Alert notifications outside the app | Push notifications to phones are not built (SignalR only works while the app is open). |

@@ -51,6 +51,10 @@ Base URL: `http://<server>:5078/api/v1`  (Scalar page: `/scalar`, Development on
 | Edit a camera | `PUT cameras/update?propertyId=&cameraId=` | Admin |
 | Delete a camera (409 if a wall uses it) | `DELETE cameras/delete?propertyId=&cameraId=` | Admin |
 | Can the server reach this host:port? (nothing saved) | `POST cameras/test-connection?propertyId=` | Admin |
+| A still picture to draw the wall annotation on (the picture itself, `image/jpeg`; size in headers `X-Frame-Width`, `X-Frame-Height`) | `GET cameras/get-snapshot?propertyId=&cameraId=` | Admin |
+
+`cameras/get-snapshot` works for `MobileApp` (IP Webcam) cameras: 400 for RTSP and ONVIF cameras (capture a frame of the
+playback stream instead), 503 with a reason when the phone is off, unreachable or refuses the login.
 
 Body: `name`, `sourceType` (`MobileApp`, `Onvif`, `Rtsp`), `host`, `port`, `streamPath`, optional `username`, `password`, `isActive`.
 The response never contains the password (only `hasPassword`). `playbackUrl` is what the apps play.
@@ -73,12 +77,18 @@ Body: `name`, `rows`, `columns`, `squareSizeMeters`.
 | List walls (with cells and routes) | `GET walls/list?propertyId=` | any |
 | One wall | `GET walls/get?propertyId=&wallId=` | any |
 | Edit a wall | `PUT walls/update?propertyId=&wallId=` | Admin |
+| **Save the wall annotation** (only the two lines, drawn on a camera picture) | `PUT walls/save-annotation?propertyId=&wallId=` | Admin |
 | Delete a wall | `DELETE walls/delete?propertyId=&wallId=` | Admin |
 | Save all cells of a wall | `PUT walls/save-cells?propertyId=&wallId=` | Admin |
 | Set the laser route of one cell | `PUT walls/set-cell-route?propertyId=&wallId=&cellId=` | Admin |
 | Is the wall ready? | `GET walls/validate?propertyId=&wallId=` | any |
 
 Wall body: `name`, `cameraId`, `frameWidth`, `frameHeight`, `wallTopPoints` (2 points `[x,y]`), `wallBottomPoints` (2 points), optional `laserGridId`, `cameraGridRow`, `cameraGridCol`.
+**Annotating a wall (the flow for the app):** 1) show a camera picture (`cameras/get-snapshot`, or a frame captured from the
+playback stream); 2) the admin taps 2 points for the top edge and 2 points for the bottom edge of the wall; 3) send them with the
+picture's size to `walls/save-annotation`. Body: `frameWidth`, `frameHeight`, `wallTopPoints`, `wallBottomPoints` (2 points `[x,y]`
+each, 0 to 1). If the annotation really changed (here or in `walls/update`) a running detection switches to the new lines at once.
+Keep the camera and its picture size fixed afterwards; the annotation is a fraction of the picture.
 Cells body (a list): `label`, `lengthMeters`, `topLeft`, `bottomLeft`, `topRight`, `bottomRight` (each `[x,y]`).
 Route body (a list, in drone visiting order): `[{ "row": 0, "col": 0 }, ...]`.
 
