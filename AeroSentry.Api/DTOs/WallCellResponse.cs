@@ -15,4 +15,8 @@ public class WallCellResponse
     public double[] BottomLeft { get; set; } = Array.Empty<double>();
     public double[] TopRight { get; set; } = Array.Empty<double>();
     public double[] BottomRight { get; set; } = Array.Empty<double>();
+
+    // Laser squares in drone visiting order, and how far they cover (squares x square size).
+    public List<GridSquareDto> Route { get; set; } = new();
+    public double LaserCoverageMeters { get; set; }
 }

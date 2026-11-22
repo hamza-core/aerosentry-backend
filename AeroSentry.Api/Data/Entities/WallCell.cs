@@ -19,4 +19,7 @@ public class WallCell
 
     // JSON text: 4 points [x, y] (0-1) in the order top-left, bottom-left, top-right, bottom-right.
     public string CornersJson { get; set; } = "[]";
+
+    // The laser route of this cell (empty until the admin links it).
+    public List<WallCellSquare> Squares { get; set; } = new();
 }

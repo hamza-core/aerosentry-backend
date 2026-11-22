@@ -23,7 +23,8 @@ public class WallService : IWallService
 
         var walls = await _db.Walls
             .Include(w => w.Camera)
-            .Include(w => w.Cells)
+            .Include(w => w.LaserGrid)
+            .Include(w => w.Cells).ThenInclude(c => c.Squares)
             .Where(w => w.PropertyId == propertyId)
             .OrderBy(w => w.Name)
             .ToListAsync();
@@ -36,7 +37,10 @@ public class WallService : IWallService
         if (!await _db.CanSeeProperty(userId, role, propertyId))
             return Result<WallResponse>.NotFound("Property not found");
 
-        var wall = await _db.Walls.Include(w => w.Camera).Include(w => w.Cells)
+        var wall = await _db.Walls
+            .Include(w => w.Camera)
+            .Include(w => w.LaserGrid)
+            .Include(w => w.Cells).ThenInclude(c => c.Squares)
             .FirstOrDefaultAsync(w => w.Id == id && w.PropertyId == propertyId);
 
         return wall is null
@@ -72,7 +76,8 @@ public class WallService : IWallService
         if (!await _db.OwnsProperty(adminId, propertyId))
             return Result<WallResponse>.NotFound("Property not found");
 
-        var wall = await _db.Walls.Include(w => w.Cells)
+        var wall = await _db.Walls
+            .Include(w => w.Cells).ThenInclude(c => c.Squares)
             .FirstOrDefaultAsync(w => w.Id == id && w.PropertyId == propertyId);
         if (wall is null)
             return Result<WallResponse>.NotFound("Wall not found");
@@ -85,10 +90,19 @@ public class WallService : IWallService
         if (await _db.Walls.AnyAsync(w => w.PropertyId == propertyId && w.Name == name && w.Id != id))
             return Result<WallResponse>.Conflict("A wall with this name already exists in this property");
 
+        // Routes are squares of one specific grid. If the wall moves to another grid (or none),
+        // the old routes mean nothing any more, so they are cleared.
+        if (wall.LaserGridId != request.LaserGridId)
+        {
+            foreach (var cell in wall.Cells)
+                _db.WallCellSquares.RemoveRange(cell.Squares);
+        }
+
         Apply(wall, request);
         await _db.SaveChangesAsync();
 
         await _db.Entry(wall).Reference(w => w.Camera).LoadAsync();
+        await _db.Entry(wall).Reference(w => w.LaserGrid).LoadAsync();
         return Result<WallResponse>.Ok(ToResponse(wall));
     }
 
@@ -173,6 +187,6 @@ public class WallService : IWallService
         CameraGridCol = w.CameraGridCol,
         CreatedAtUtc = w.CreatedAtUtc,
         TotalLengthMeters = w.Cells.Sum(c => c.LengthMeters),
-        Cells = WallCellService.ToResponses(w.Cells)
+        Cells = WallCellService.ToResponses(w.Cells, w.LaserGrid?.SquareSizeMeters ?? 0)
     };
 }

@@ -16,6 +16,7 @@ public class AppDbContext : DbContext
     public DbSet<LaserGrid> LaserGrids => Set<LaserGrid>();
     public DbSet<Wall> Walls => Set<Wall>();
     public DbSet<WallCell> WallCells => Set<WallCell>();
+    public DbSet<WallCellSquare> WallCellSquares => Set<WallCellSquare>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -110,6 +111,26 @@ public class AppDbContext : DbContext
                   .WithMany(w => w.Cells)
                   .HasForeignKey(c => c.WallId)
                   .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<WallCellSquare>(entity =>
+        {
+            // A laser square belongs to at most one cell, across all walls of the grid.
+            entity.HasIndex(s => new { s.LaserGridId, s.Row, s.Col }).IsUnique();
+
+            // Each position in one cell's route is used once.
+            entity.HasIndex(s => new { s.WallCellId, s.Order }).IsUnique();
+
+            entity.HasOne(s => s.WallCell)
+                  .WithMany(c => c.Squares)
+                  .HasForeignKey(s => s.WallCellId)
+                  .OnDelete(DeleteBehavior.Cascade);
+
+            // Restrict: deleting a grid never silently deletes routes (the service answers 409 first).
+            entity.HasOne(s => s.LaserGrid)
+                  .WithMany()
+                  .HasForeignKey(s => s.LaserGridId)
+                  .OnDelete(DeleteBehavior.Restrict);
         });
 
         modelBuilder.Entity<PropertyGuard>(entity =>

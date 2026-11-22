@@ -70,6 +70,15 @@ public class LaserGridService : ILaserGridService
         if (await _db.LaserGrids.AnyAsync(g => g.PropertyId == propertyId && g.Name == name && g.Id != id))
             return Result<LaserGridResponse>.Conflict("A laser grid with this name already exists in this property");
 
+        // A smaller grid must not leave a linked square or a camera position outside it.
+        var squareOutside = await _db.WallCellSquares.AnyAsync(
+            s => s.LaserGridId == id && (s.Row >= request.Rows || s.Col >= request.Columns));
+        var cameraOutside = await _db.Walls.AnyAsync(
+            w => w.LaserGridId == id && (w.CameraGridRow >= request.Rows || w.CameraGridCol >= request.Columns));
+        if (squareOutside || cameraOutside)
+            return Result<LaserGridResponse>.Conflict(
+                "A linked square or a camera position would be outside the smaller grid");
+
         Apply(grid, request);
         await _db.SaveChangesAsync();
 
