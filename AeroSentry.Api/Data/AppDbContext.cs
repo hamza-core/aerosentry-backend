@@ -12,6 +12,7 @@ public class AppDbContext : DbContext
     public DbSet<User> Users => Set<User>();
     public DbSet<Property> Properties => Set<Property>();
     public DbSet<PropertyGuard> PropertyGuards => Set<PropertyGuard>();
+    public DbSet<Camera> Cameras => Set<Camera>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -37,6 +38,24 @@ public class AppDbContext : DbContext
                   .WithMany()
                   .HasForeignKey(p => p.OwnerAdminId)
                   .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<Camera>(entity =>
+        {
+            entity.Property(c => c.Name).HasMaxLength(200);
+            entity.Property(c => c.SourceType).HasMaxLength(20);
+            entity.Property(c => c.Host).HasMaxLength(255);
+            entity.Property(c => c.StreamPath).HasMaxLength(300);
+            entity.Property(c => c.Username).HasMaxLength(100);
+            entity.Property(c => c.Password).HasMaxLength(200);
+
+            // No two cameras in the same property may share a name.
+            entity.HasIndex(c => new { c.PropertyId, c.Name }).IsUnique();
+
+            entity.HasOne(c => c.Property)
+                  .WithMany()
+                  .HasForeignKey(c => c.PropertyId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<PropertyGuard>(entity =>
