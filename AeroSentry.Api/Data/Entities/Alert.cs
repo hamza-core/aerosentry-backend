@@ -25,6 +25,14 @@ public class Alert
 
     public double Probability { get; set; }
 
+    // Set when the person at the wall was recognised as an AUTHORIZED enrolled person (resident, employee, visitor).
+    // It only informs: the alert is still created and still needs a person to look at it. Plain values, no foreign key,
+    // so the alert keeps the name even if the person is later removed.
+    public Guid? RecognizedPersonId { get; set; }
+    public string? RecognizedPersonName { get; set; }
+    public string? RecognizedPersonCategory { get; set; }
+    public double? RecognitionScore { get; set; }
+
     // See AlertStatus. Feature 7 (alert actions) moves an alert from New to the other states.
     public string Status { get; set; } = AlertStatus.New;
 

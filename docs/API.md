@@ -127,7 +127,7 @@ If two people press at the same moment, exactly one succeeds and the other gets 
 
 Alert: `id`, `number`, `incidentCode` (`INC-0042`), `status` (`New`, later `Acknowledged`, `FalseAlarm`, `Closed`, `Escalated`),
 `propertyId/Name`, `wallId/Name`, `cameraId/Name`, `cellId`, `cellLabel` (null if the person was outside every cell),
-`probability`, `detectionEventId`, `createdAtUtc`. Admins see alerts of their properties, guards of the properties they are assigned to.
+`probability`, `recognizedPerson` (see Authorized people; usually null), `detectionEventId`, `createdAtUtc`. Admins see alerts of their properties, guards of the properties they are assigned to.
 
 ### Live alerts (SignalR)
 New alerts are **pushed** to the app, no polling.
@@ -158,6 +158,34 @@ still change. See `docs/FUTURE-WORK.md` for what is decided and what is open.
 | Take manual control (pauses autonomous flight) | `POST drones/take-manual-control?propertyId=&droneId=` |
 | Joystick values while in manual control | `POST drones/send-controls?propertyId=&droneId=` |
 | Resume the mission | `POST drones/release-manual-control?propertyId=&droneId=` |
+
+## Authorized people (face ID)
+Faces that are **not treated as intruders**. Faces are biometric data: every function here is **admin only**, for the admin's own
+properties, and removing a person deletes the photos and the face numbers for good.
+| Function | Method and path |
+|---|---|
+| Enrol a person | `POST people/enroll?propertyId=` (multipart, see below) |
+| Is this photo good enough to enrol with? (call it for each photo as it is taken) | `POST people/check-photo?propertyId=` (multipart `image`) |
+| List people (optional `category`) | `GET people/list?propertyId=[&category=Resident\|Employee\|Visitor]` |
+| One person | `GET people/get?propertyId=&personId=` |
+| A stored photo (the picture itself) | `GET people/get-photo?propertyId=&personId=&angle=Front\|Left\|Right` |
+| Edit the details | `PUT people/update?propertyId=&personId=` (JSON) |
+| Switch access off / on | `POST people/disable-access?...` / `POST people/enable-access?propertyId=&personId=` |
+| Remove a person | `DELETE people/delete?propertyId=&personId=` |
+| Who is in this picture? | `POST people/identify?propertyId=` (multipart `image`) |
+
+**Enrol** (`multipart/form-data`): `name`, `category` (`Resident`, `Employee`, `Visitor`), optional `phone`, `validUntil` (`2026-10-31`, empty = no expiry),
+optional `note`, and three picture files `front`, `left`, `right`. Each photo must show **exactly one face, at least 100 px wide**, and the three must
+look like the same person. Errors name the photo ("The Left photo: no face was found"); 409 if this face is already enrolled.
+**Status** (never stored, worked out each time): `Authorized`, `Disabled` (access switched off) or `Expired` (today is after `validUntil`; the last day counts).
+**Update** body: `name`, `phone`, `category`, `validUntil`, `note` (to change the photos, remove the person and enrol again).
+**Identify** answers every face in the picture: `box`, `bestScore`, `matched` (score at least `Face:MatchThreshold`, 0.45), the `person`, and `isAuthorized`
+(matched and status `Authorized`). 503 when the face service is not running.
+
+**On alarms.** When the wall model raises an alarm, the backend also looks for a face inside the person's box; if it is an `Authorized` enrolled person,
+the alert (and the SignalR push) carries `recognizedPerson` `{ id, name, category, score }`. It is **informational only**: the alert is still created
+and still needs a person to look at it; disabled and expired people are never flagged; if the face service is down the alert is created without it.
+Faces at a wall camera are often too small to recognise (see `docs/FUTURE-WORK.md`), so expect `recognizedPerson` to be null most of the time.
 
 ## Worker (only for the ingest worker program, not for apps)
 Authenticated with the header `X-Worker-Key: <Worker:ApiKey>`. A user's JWT does not work here, and the key works nowhere else.

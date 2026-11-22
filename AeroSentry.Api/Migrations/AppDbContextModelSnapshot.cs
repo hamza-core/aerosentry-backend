@@ -16,7 +16,7 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261122111820_AddAlertActions";
+    public override string LastMigrationId => "20261122123837_AddAuthorizedPeople";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -57,6 +57,20 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
 
                 b.Property<Guid>("PropertyId")
                     .HasColumnType("uniqueidentifier");
+
+                b.Property<double?>("RecognitionScore")
+                    .HasColumnType("float");
+
+                b.Property<string>("RecognizedPersonCategory")
+                    .HasMaxLength(20)
+                    .HasColumnType("nvarchar(20)");
+
+                b.Property<Guid?>("RecognizedPersonId")
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<string>("RecognizedPersonName")
+                    .HasMaxLength(100)
+                    .HasColumnType("nvarchar(100)");
 
                 b.Property<string>("Status")
                     .IsRequired()
@@ -130,6 +144,53 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                 b.HasIndex("AlertId", "AtUtc");
 
                 b.ToTable("AlertActions");
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.AuthorizedPerson", b =>
+            {
+                b.Property<Guid>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<bool>("AccessDisabled")
+                    .HasColumnType("bit");
+
+                b.Property<string>("Category")
+                    .IsRequired()
+                    .HasMaxLength(20)
+                    .HasColumnType("nvarchar(20)");
+
+                b.Property<DateTime>("EnrolledAtUtc")
+                    .HasColumnType("datetime2");
+
+                b.Property<byte[]>("MeanEmbedding")
+                    .IsRequired()
+                    .HasColumnType("varbinary(max)");
+
+                b.Property<string>("Name")
+                    .IsRequired()
+                    .HasMaxLength(100)
+                    .HasColumnType("nvarchar(100)");
+
+                b.Property<string>("Note")
+                    .HasMaxLength(500)
+                    .HasColumnType("nvarchar(500)");
+
+                b.Property<string>("Phone")
+                    .HasMaxLength(30)
+                    .HasColumnType("nvarchar(30)");
+
+                b.Property<Guid>("PropertyId")
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<DateOnly?>("ValidUntil")
+                    .HasColumnType("date");
+
+                b.HasKey("Id");
+
+                b.HasIndex("PropertyId");
+
+                b.ToTable("AuthorizedPeople");
             });
 
         modelBuilder.Entity("AeroSentry.Api.Data.Entities.Camera", b =>
@@ -261,6 +322,44 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                     .IsUnique();
 
                 b.ToTable("LaserGrids");
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.PersonPhoto", b =>
+            {
+                b.Property<Guid>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<string>("Angle")
+                    .IsRequired()
+                    .HasMaxLength(10)
+                    .HasColumnType("nvarchar(10)");
+
+                b.Property<string>("ContentType")
+                    .IsRequired()
+                    .HasMaxLength(50)
+                    .HasColumnType("nvarchar(50)");
+
+                b.Property<byte[]>("Embedding")
+                    .IsRequired()
+                    .HasColumnType("varbinary(max)");
+
+                b.Property<int>("FaceWidth")
+                    .HasColumnType("int");
+
+                b.Property<byte[]>("Image")
+                    .IsRequired()
+                    .HasColumnType("varbinary(max)");
+
+                b.Property<Guid>("PersonId")
+                    .HasColumnType("uniqueidentifier");
+
+                b.HasKey("Id");
+
+                b.HasIndex("PersonId", "Angle")
+                    .IsUnique();
+
+                b.ToTable("PersonPhotos");
             });
 
         modelBuilder.Entity("AeroSentry.Api.Data.Entities.Property", b =>
@@ -525,6 +624,17 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                 b.Navigation("Alert");
             });
 
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.AuthorizedPerson", b =>
+            {
+                b.HasOne("AeroSentry.Api.Data.Entities.Property", "Property")
+                    .WithMany()
+                    .HasForeignKey("PropertyId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                b.Navigation("Property");
+            });
+
         modelBuilder.Entity("AeroSentry.Api.Data.Entities.Camera", b =>
             {
                 b.HasOne("AeroSentry.Api.Data.Entities.Property", "Property")
@@ -556,6 +666,17 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                     .IsRequired();
 
                 b.Navigation("Property");
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.PersonPhoto", b =>
+            {
+                b.HasOne("AeroSentry.Api.Data.Entities.AuthorizedPerson", "Person")
+                    .WithMany("Photos")
+                    .HasForeignKey("PersonId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                b.Navigation("Person");
             });
 
         modelBuilder.Entity("AeroSentry.Api.Data.Entities.Property", b =>
@@ -650,6 +771,11 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                 b.Navigation("LaserGrid");
 
                 b.Navigation("WallCell");
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.AuthorizedPerson", b =>
+            {
+                b.Navigation("Photos");
             });
 
         modelBuilder.Entity("AeroSentry.Api.Data.Entities.Property", b =>

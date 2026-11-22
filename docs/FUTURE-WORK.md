@@ -39,6 +39,36 @@ What is NOT built yet, and what must be decided before it can be. Update this fi
 ### Planned backend pieces
 `Drone` and `FlightLog` tables, a drone service, status pushed to the apps over SignalR (`DroneStatusChanged`), flight logs per mission.
 
+## Feature 9: authorized people (face ID): built, with one big limit
+
+**Built.** A separate face service (`face-service/`, InsightFace `buffalo_l` like your learning scripts, offline, CPU) and the backend functions
+`people/...` (enrol with 3 photos, check a photo, list, get, update, disable/enable access, remove, identify). See `docs/API.md`.
+On every alarm the backend looks for a face inside the person's box and flags the alert with `recognizedPerson` when it is an authorized person.
+
+**The limit: faces at a wall camera are too small.** Measured on 8 wall clips (1080p and smaller), 12 frames each, with the same detector:
+face width 13 to 50 px (median 37), **none reached 60 px**, the detector found any face in only 41 of 96 frames. ArcFace needs a face of roughly
+60 to 100 px or more to be reliable (your own enrolment script demanded more than 100). So with cameras like the ones in the dataset, recognition
+at the wall will mostly find nothing. It will work where faces are big: an entrance or gate camera, a camera aimed at a doorway, the drone camera at
+close range, or a photo taken by a guard (`people/identify`). The design deck promises "recognised by face on every camera at this property";
+that holds only for cameras that see faces large enough. Test it with the university's cameras before promising it.
+
+**Why a match only flags and never silences an alert.** The deck says enrolled people "will not trigger an automatic response". The automatic
+response (drone dispatch, Feature 10) is not built, so nothing is suppressed yet. When it is built, skipping the drone for a flagged alert is
+a one-line decision, but make it knowingly: a false match would let a stranger through, and a person climbing a wall is a safety event even if
+they are an employee.
+
+**Threshold 0.45** (`Face:MatchThreshold`), the value of your multi-face script. On your own data: different people scored 0.00 to 0.25 against each
+other (median 0.07), the same person on a new photo 0.43 to 0.86 (mostly 0.64 to 0.86). 0.45 leans strict (it would have missed your weakest photo,
+0.43), which is right for a whitelist. That is 6 identities and 11 photos: not a measured error rate. Measure on real enrolments before relying on it.
+
+**Data protection.** Faces are biometric. Photos and face numbers sit in plain form in the database (like the camera passwords), only admins can
+read them, and removing a person deletes them for good. Get the people's consent, and decide who may hold the database and its backups.
+
+**Not done:** your learning folder was only read, never changed. The five `.npy` identities in it (and `ameer_master_identity.npy`, which is the same
+person as `hamza.npy`, similarity 0.97) are not imported; enrol those people through the app with three photos each. `authorized.json` is old
+128-number data from a different model and cannot be used. Liveness (a photo of a face held to the camera fools it), tracking a face across frames, and
+the automatic-response policy are not built.
+
 ## ML service speed: a decision for you and your supervisor
 
 **Finding.** In live mode the ML service re-runs its whole 60-frame window through the bidirectional LSTM on every frame.
@@ -85,7 +115,6 @@ phone login enabled, phone on weak Wi-Fi for hours, phone sleeping, and your CCT
 | IP Webcam (phone) through MediaMTX | Tested directly (`--source camera`). MediaMTX needs the phone's RTSP mode or ffmpeg (not installed on this Mac). Not tested. |
 | Snapshot for RTSP / ONVIF cameras | `cameras/get-snapshot` only works for IP Webcam phones (the backend cannot decode RTSP without ffmpeg). For the others the app captures a frame from the playback stream. |
 | Frame rate | Done: sampled by time at 5/s (the measured training rate), paced to what the ML service can analyse. Open: ML service speed, see the section above. |
-| Feature 9: authorized people (face ID) | Not started. Face service is a separate ML service. |
 | Feature 10: reports and settings | Not started. Includes the automatic response policy and alert notification preferences shown in the design. |
 | Alert notifications outside the app | Push notifications to phones are not built (SignalR only works while the app is open). |
 | Design change | Add an "Annotate wall" screen (2 top points, 2 bottom points on the camera frame) before cell marking. |

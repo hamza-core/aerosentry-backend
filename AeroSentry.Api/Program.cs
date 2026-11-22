@@ -36,6 +36,14 @@ builder.Services.AddHttpClient<ICameraSnapshotClient, CameraSnapshotClient>(clie
     client.Timeout = TimeSpan.FromSeconds(6);
     client.MaxResponseContentBufferSize = 10 * 1024 * 1024;
 });
+// The face service (port 8020) finds faces in pictures; people are stored and matched here in the backend.
+builder.Services.AddHttpClient<IFaceClient, FaceClient>(client =>
+{
+    client.BaseAddress = new Uri(builder.Configuration["Face:BaseUrl"] ?? "http://localhost:8020");
+    client.Timeout = TimeSpan.FromSeconds(30);
+    client.MaxResponseContentBufferSize = 20 * 1024 * 1024;
+});
+builder.Services.AddScoped<IPersonService, PersonService>();
 builder.Services.AddSingleton<DetectionSessions>();   // one shared wall -> ML session map
 builder.Services.AddScoped<IDetectionService, DetectionService>();
 

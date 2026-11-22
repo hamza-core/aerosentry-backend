@@ -16,9 +16,11 @@ public class DetectionService : IDetectionService
     private readonly DetectionSessions _sessions;
     private readonly IConfiguration _config;
     private readonly IAlertService _alerts;
+    private readonly IPersonService _people;
 
-    public DetectionService(AppDbContext db, IMlClient ml, DetectionSessions sessions, IConfiguration config, IAlertService alerts)
+    public DetectionService(AppDbContext db, IMlClient ml, DetectionSessions sessions, IConfiguration config, IAlertService alerts, IPersonService people)
     {
+        _people = people;
         _db = db;
         _ml = ml;
         _sessions = sessions;
@@ -261,13 +263,19 @@ public class DetectionService : IDetectionService
             };
             _db.DetectionEvents.Add(detection);
 
+            // Is the person at the wall someone who is enrolled and authorized? Best effort and informational only: the alert
+            // is created either way. (Faces at a wall camera are often too small to recognise; then this is simply null.)
+            var target = intruder ?? people.OrderByDescending(p => p.Confidence).FirstOrDefault();
+            var recognized = target is null ? null : await _people.FindAuthorizedAsync(wall.PropertyId, jpeg, target.Box);
+
             // Saves the event AND its alert together, then pushes the alert to the apps over SignalR.
-            var alert = await _alerts.CreateForDetectionAsync(detection, wall.PropertyId);
+            var alert = await _alerts.CreateForDetectionAsync(detection, wall.PropertyId, recognized);
 
             response.EventId = detection.Id;
             response.CellLabel = detection.CellLabel;
             response.AlertId = alert.Id;
             response.IncidentCode = alert.IncidentCode;
+            response.RecognizedPerson = alert.RecognizedPerson;
         }
 
         return Result<DetectionFrameResponse>.Ok(response);

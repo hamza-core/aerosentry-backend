@@ -23,6 +23,11 @@ public class AlertResponse
     public string? CellLabel { get; set; }
 
     public double Probability { get; set; }
+
+    // Set when the person at the wall was recognised as an authorized enrolled person. Null otherwise
+    // (which is the usual case: faces at a wall camera are often too small to recognise).
+    public RecognizedPersonDto? RecognizedPerson { get; set; }
+
     public Guid DetectionEventId { get; set; }
     public DateTime CreatedAtUtc { get; set; }
 }

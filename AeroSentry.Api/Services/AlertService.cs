@@ -18,7 +18,7 @@ public class AlertService : IAlertService
         _logger = logger;
     }
 
-    public async Task<AlertResponse> CreateForDetectionAsync(DetectionEvent detection, Guid propertyId)
+    public async Task<AlertResponse> CreateForDetectionAsync(DetectionEvent detection, Guid propertyId, RecognizedPersonDto? recognized = null)
     {
         var alert = new Alert
         {
@@ -27,7 +27,11 @@ public class AlertService : IAlertService
             WallId = detection.WallId,
             CellId = detection.CellId,
             CellLabel = detection.CellLabel,
-            Probability = detection.Probability
+            Probability = detection.Probability,
+            RecognizedPersonId = recognized?.Id,
+            RecognizedPersonName = recognized?.Name,
+            RecognizedPersonCategory = recognized?.Category,
+            RecognitionScore = recognized?.Score
         };
 
         _db.Alerts.Add(alert);
@@ -208,6 +212,13 @@ public class AlertService : IAlertService
         CellId = a.CellId,
         CellLabel = a.CellLabel,
         Probability = a.Probability,
+        RecognizedPerson = a.RecognizedPersonId is null ? null : new RecognizedPersonDto
+        {
+            Id = a.RecognizedPersonId.Value,
+            Name = a.RecognizedPersonName ?? "",
+            Category = a.RecognizedPersonCategory ?? "",
+            Score = a.RecognitionScore ?? 0
+        },
         DetectionEventId = a.DetectionEventId,
         CreatedAtUtc = a.CreatedAtUtc
     };

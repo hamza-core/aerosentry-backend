@@ -51,6 +51,9 @@ public class DetectionFrameResponse
     public Guid? AlertId { get; set; }
     public string? IncidentCode { get; set; }
 
+    // Set when the person at the wall was recognised as an authorized enrolled person (informational).
+    public RecognizedPersonDto? RecognizedPerson { get; set; }
+
     public List<DetectedPersonDto> People { get; set; } = new();
 }
 
