@@ -40,9 +40,9 @@ public class PropertiesController : ControllerBase
 
     // GET /api/v1/properties/list
     [HttpGet("list")]
-    public async Task<IActionResult> List()
+    public async Task<IActionResult> List(string? search)
     {
-        return Ok(await _properties.ListAsync(CallerId, CallerRole));
+        return Ok(await _properties.ListAsync(CallerId, CallerRole , search));
     }
 
     // GET /api/v1/properties/get?propertyId=...
