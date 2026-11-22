@@ -1,4 +1,3 @@
-using System.Security.Claims;
 using AeroSentry.Api.DTOs;
 using AeroSentry.Api.Services;
 using Microsoft.AspNetCore.Authorization;
@@ -6,10 +5,8 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace AeroSentry.Api.Controllers;
 
-[ApiController]
-[Route("api/v1/properties/{propertyId:guid}/cameras")]
-[Authorize]   // any signed-in user; write actions below add Roles = "Admin"
-public class CamerasController : ControllerBase
+[Route("api/v1/cameras")]
+public class CamerasController : ApiControllerBase
 {
     private readonly ICameraService _cameras;
 
@@ -18,10 +15,8 @@ public class CamerasController : ControllerBase
         _cameras = cameras;
     }
 
-    private Guid CallerId => Guid.Parse(User.FindFirstValue("sub")!);
-    private string CallerRole => User.FindFirstValue("role")!;
-
-    [HttpPost]
+    // POST /api/v1/cameras/create?propertyId=...
+    [HttpPost("create")]
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> Create(Guid propertyId, CameraRequest request)
     {
@@ -29,7 +24,8 @@ public class CamerasController : ControllerBase
         return ToActionResult(result, created: true);
     }
 
-    [HttpGet]
+    // GET /api/v1/cameras/list?propertyId=...
+    [HttpGet("list")]
     public async Task<IActionResult> List(Guid propertyId)
     {
         var result = await _cameras.ListAsync(CallerId, CallerRole, propertyId);
@@ -39,42 +35,36 @@ public class CamerasController : ControllerBase
         return Ok(result);
     }
 
-    [HttpGet("{id:guid}")]
-    public async Task<IActionResult> Get(Guid propertyId, Guid id)
+    // GET /api/v1/cameras/get?propertyId=...&cameraId=...
+    [HttpGet("get")]
+    public async Task<IActionResult> Get(Guid propertyId, Guid cameraId)
     {
-        var result = await _cameras.GetAsync(CallerId, CallerRole, propertyId, id);
+        var result = await _cameras.GetAsync(CallerId, CallerRole, propertyId, cameraId);
         if (result is null)
             return Problem(statusCode: 404, title: "Camera not found");
 
         return Ok(result);
     }
 
-    [HttpPut("{id:guid}")]
+    // PUT /api/v1/cameras/update?propertyId=...&cameraId=...
+    [HttpPut("update")]
     [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> Update(Guid propertyId, Guid id, CameraRequest request)
+    public async Task<IActionResult> Update(Guid propertyId, Guid cameraId, CameraRequest request)
     {
-        var result = await _cameras.UpdateAsync(CallerId, propertyId, id, request);
+        var result = await _cameras.UpdateAsync(CallerId, propertyId, cameraId, request);
         return ToActionResult(result, created: false);
     }
 
-    [HttpDelete("{id:guid}")]
+    // DELETE /api/v1/cameras/delete?propertyId=...&cameraId=...
+    [HttpDelete("delete")]
     [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> Delete(Guid propertyId, Guid id)
-    {
-        var result = await _cameras.DeleteAsync(CallerId, propertyId, id);
+    public async Task<IActionResult> Delete(Guid propertyId, Guid cameraId) =>
+        NoContentFromResult(await _cameras.DeleteAsync(CallerId, propertyId, cameraId));
 
-        return result.Status switch
-        {
-            ResultStatus.Success => NoContent(),
-            ResultStatus.Conflict => Problem(statusCode: 409, title: result.Message),
-            _ => Problem(statusCode: 404, title: result.Message)
-        };
-    }
-
-    // Checks that the camera's host:port is reachable. Nothing is saved.
-    [HttpPost("test")]
+    // POST /api/v1/cameras/test-connection?propertyId=...   (nothing is saved)
+    [HttpPost("test-connection")]
     [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> Test(Guid propertyId, CameraRequest request)
+    public async Task<IActionResult> TestConnection(Guid propertyId, CameraRequest request)
     {
         var result = await _cameras.TestAsync(CallerId, propertyId, request);
         if (result is null)

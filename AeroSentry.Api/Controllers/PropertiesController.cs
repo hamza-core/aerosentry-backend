@@ -6,6 +6,8 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace AeroSentry.Api.Controllers;
 
+// Naming rule for every controller: /api/v1/<feature>/<action>.
+// Ids always go in the query string (?propertyId=...), the JSON body holds only data.
 [ApiController]
 [Route("api/v1/properties")]
 [Authorize]   // any signed-in user; write actions below add Roles = "Admin"
@@ -24,7 +26,8 @@ public class PropertiesController : ControllerBase
     // Latitude and longitude must come together or not at all.
     private bool CoordinatesIncomplete(PropertyRequest r) => (r.Latitude is null) != (r.Longitude is null);
 
-    [HttpPost]
+    // POST /api/v1/properties/create
+    [HttpPost("create")]
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> Create(PropertyRequest request)
     {
@@ -35,41 +38,45 @@ public class PropertiesController : ControllerBase
         return StatusCode(StatusCodes.Status201Created, result);
     }
 
-    [HttpGet]
+    // GET /api/v1/properties/list
+    [HttpGet("list")]
     public async Task<IActionResult> List()
     {
         return Ok(await _properties.ListAsync(CallerId, CallerRole));
     }
 
-    [HttpGet("{id:guid}")]
-    public async Task<IActionResult> Get(Guid id)
+    // GET /api/v1/properties/get?propertyId=...
+    [HttpGet("get")]
+    public async Task<IActionResult> Get(Guid propertyId)
     {
-        var result = await _properties.GetAsync(CallerId, CallerRole, id);
+        var result = await _properties.GetAsync(CallerId, CallerRole, propertyId);
         if (result is null)
             return Problem(statusCode: 404, title: "Property not found");
 
         return Ok(result);
     }
 
-    [HttpPut("{id:guid}")]
+    // PUT /api/v1/properties/update?propertyId=...
+    [HttpPut("update")]
     [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> Update(Guid id, PropertyRequest request)
+    public async Task<IActionResult> Update(Guid propertyId, PropertyRequest request)
     {
         if (CoordinatesIncomplete(request))
             return Problem(statusCode: 400, title: "Send both latitude and longitude, or neither");
 
-        var result = await _properties.UpdateAsync(CallerId, id, request);
+        var result = await _properties.UpdateAsync(CallerId, propertyId, request);
         if (result is null)
             return Problem(statusCode: 404, title: "Property not found");
 
         return Ok(result);
     }
 
-    [HttpDelete("{id:guid}")]
+    // DELETE /api/v1/properties/delete?propertyId=...
+    [HttpDelete("delete")]
     [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> Delete(Guid id)
+    public async Task<IActionResult> Delete(Guid propertyId)
     {
-        if (!await _properties.DeleteAsync(CallerId, id))
+        if (!await _properties.DeleteAsync(CallerId, propertyId))
             return Problem(statusCode: 404, title: "Property not found");
 
         return NoContent();
@@ -77,32 +84,35 @@ public class PropertiesController : ControllerBase
 
     // ---- which guards work at this property ----
 
-    [HttpGet("{id:guid}/guards")]
+    // GET /api/v1/properties/list-guards?propertyId=...
+    [HttpGet("list-guards")]
     [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> ListGuards(Guid id)
+    public async Task<IActionResult> ListGuards(Guid propertyId)
     {
-        var result = await _properties.ListGuardsAsync(CallerId, id);
+        var result = await _properties.ListGuardsAsync(CallerId, propertyId);
         if (result is null)
             return Problem(statusCode: 404, title: "Property not found");
 
         return Ok(result);
     }
 
-    [HttpPut("{id:guid}/guards/{guardId:guid}")]
+    // PUT /api/v1/properties/assign-guard?propertyId=...&guardId=...
+    [HttpPut("assign-guard")]
     [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> AssignGuard(Guid id, Guid guardId)
+    public async Task<IActionResult> AssignGuard(Guid propertyId, Guid guardId)
     {
-        if (!await _properties.AssignGuardAsync(CallerId, id, guardId))
+        if (!await _properties.AssignGuardAsync(CallerId, propertyId, guardId))
             return Problem(statusCode: 404, title: "Property or guard not found");
 
         return NoContent();
     }
 
-    [HttpDelete("{id:guid}/guards/{guardId:guid}")]
+    // DELETE /api/v1/properties/unassign-guard?propertyId=...&guardId=...
+    [HttpDelete("unassign-guard")]
     [Authorize(Roles = "Admin")]
-    public async Task<IActionResult> UnassignGuard(Guid id, Guid guardId)
+    public async Task<IActionResult> UnassignGuard(Guid propertyId, Guid guardId)
     {
-        if (!await _properties.UnassignGuardAsync(CallerId, id, guardId))
+        if (!await _properties.UnassignGuardAsync(CallerId, propertyId, guardId))
             return Problem(statusCode: 404, title: "Property not found");
 
         return NoContent();
