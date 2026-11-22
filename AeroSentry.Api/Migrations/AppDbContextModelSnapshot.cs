@@ -16,7 +16,7 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261122104233_AddDetectionEvents";
+    public override string LastMigrationId => "20261122110730_AddWallDetectionState";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -278,6 +278,12 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
 
                 b.Property<DateTime>("CreatedAtUtc")
                     .HasColumnType("datetime2");
+
+                b.Property<bool>("DetectionEnabled")
+                    .HasColumnType("bit");
+
+                b.Property<double?>("DetectionThreshold")
+                    .HasColumnType("float");
 
                 b.Property<int>("FrameHeight")
                     .HasColumnType("int");

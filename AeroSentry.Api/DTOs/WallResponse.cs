@@ -16,6 +16,9 @@ public class WallResponse
     public int? CameraGridCol { get; set; }
     public DateTime CreatedAtUtc { get; set; }
 
+    // True while the wall is being watched (after detection/start, until detection/stop).
+    public bool DetectionEnabled { get; set; }
+
     public double TotalLengthMeters { get; set; }
     public List<WallCellResponse> Cells { get; set; } = new();
 }

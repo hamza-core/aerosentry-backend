@@ -27,6 +27,10 @@ public class Wall
     public int? CameraGridRow { get; set; }
     public int? CameraGridCol { get; set; }
 
+    // ---- is this wall being watched? Saved in the database so it survives a backend restart ----
+    public bool DetectionEnabled { get; set; }
+    public double? DetectionThreshold { get; set; }
+
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
 
     public List<WallCell> Cells { get; set; } = new();
