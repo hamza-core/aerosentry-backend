@@ -78,6 +78,8 @@ public class DetectionService : IDetectionService
         return await ProcessFrameAsync(wall, jpeg, frameIndex, timestampSeconds);
     }
 
+    public Task ResetSessionAsync(Guid wallId) => CloseSessionAsync(wallId);
+
     public async Task<Result<DetectionFrameResponse>> WorkerFrameAsync(
         Guid wallId, byte[] jpeg, int frameIndex, double timestampSeconds)
     {
@@ -176,6 +178,8 @@ public class DetectionService : IDetectionService
             WallName = w.Name,
             CameraId = w.CameraId,
             CameraName = w.Camera.Name,
+            FrameWidth = w.FrameWidth,
+            FrameHeight = w.FrameHeight,
             Threshold = w.DetectionThreshold ?? DefaultThreshold,
             MediaSourceUrl = $"{RtspBase}/cam-{w.CameraId}",
             CameraSourceUrl = BuildCameraUrl(w.Camera)

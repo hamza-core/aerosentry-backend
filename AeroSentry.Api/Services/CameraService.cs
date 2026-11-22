@@ -12,11 +12,13 @@ public class CameraService : ICameraService
 {
     private readonly AppDbContext _db;
     private readonly IConfiguration _config;
+    private readonly ICameraSnapshotClient _snapshots;
 
-    public CameraService(AppDbContext db, IConfiguration config)
+    public CameraService(AppDbContext db, IConfiguration config, ICameraSnapshotClient snapshots)
     {
         _db = db;
         _config = config;
+        _snapshots = snapshots;
     }
 
     public async Task<List<CameraResponse>?> ListAsync(Guid userId, string role, Guid propertyId)
@@ -117,6 +119,36 @@ public class CameraService : ICameraService
         {
             return new CameraTestResponse { Reachable = false, Message = ex.SocketErrorCode.ToString() };
         }
+    }
+
+    public async Task<Result<CameraSnapshot>> GetSnapshotAsync(Guid adminId, Guid propertyId, Guid cameraId)
+    {
+        if (!await OwnsProperty(adminId, propertyId))
+            return Result<CameraSnapshot>.NotFound("Property not found");
+
+        var camera = await _db.Cameras.FirstOrDefaultAsync(c => c.Id == cameraId && c.PropertyId == propertyId);
+        if (camera is null)
+            return Result<CameraSnapshot>.NotFound("Camera not found");
+
+        // Without ffmpeg the backend cannot decode RTSP. IP Webcam offers a plain HTTP picture, so it works.
+        if (camera.SourceType != "MobileApp")
+            return Result<CameraSnapshot>.BadRequest(
+                "A snapshot is only available for MobileApp (IP Webcam) cameras. For RTSP and ONVIF cameras, capture a frame from the playback stream.");
+
+        byte[] image;
+        try
+        {
+            image = await _snapshots.GetJpegAsync(camera);
+        }
+        catch (CameraSnapshotException ex)
+        {
+            return Result<CameraSnapshot>.Unavailable(ex.Message);
+        }
+
+        if (!JpegInfo.TryReadSize(image, out var width, out var height))
+            return Result<CameraSnapshot>.Unavailable("The camera did not return a JPEG picture");
+
+        return Result<CameraSnapshot>.Ok(new CameraSnapshot { Image = image, Width = width, Height = height });
     }
 
     // ---- helpers ----

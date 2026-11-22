@@ -6,6 +6,12 @@
 - Every endpoint is now `/api/v1/<feature>/<action>` (e.g. `cameras/create`, `walls/save-cells`); ids moved from the path to the query string (`?propertyId=&cameraId=`). Full list in `docs/API.md`.
 - Guards endpoints from Feature 1 changed accordingly: `guards/create`, `guards/list`, `guards/set-status`, `guards/delete`. Auth endpoints did not change.
 
+### Annotation, IP Webcam and frame rate
+- `GET cameras/get-snapshot` (picture from an IP Webcam phone, with its size) and `PUT walls/save-annotation`; a changed annotation resets the running ML session.
+- Ingest worker now samples by time at 5 frames/s (measured training rate: 65% of training videos are 25 fps, 20% are 30 fps, 14% are 24 fps), paces itself to what the ML service can analyse, and warns when the camera's picture shape differs from the annotation. Details in `ingest-worker/README.md`.
+- Tested against a real IP Webcam phone (640x480, about 30 fps, no login): snapshot, stream and the whole detection chain.
+- Finding: the ML service on the GPU (mps) analyses only about 2-2.5 frames/s once its 60-frame window is full; on the CPU about 14. See `docs/FUTURE-WORK.md`.
+
 ### Feature 8: Drone (planned, NOT implemented)
 - Placeholder `drones/...` functions answer 501 so the apps can prepare. Open decisions and the full list of unfinished work: `docs/FUTURE-WORK.md`.
 

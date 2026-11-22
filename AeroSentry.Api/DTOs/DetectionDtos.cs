@@ -82,6 +82,11 @@ public class WorkerJobResponse
     public string WallName { get; set; } = string.Empty;
     public Guid CameraId { get; set; }
     public string CameraName { get; set; } = string.Empty;
+
+    // The picture size the wall was annotated on. The worker warns when the camera's real frames have another shape.
+    public int FrameWidth { get; set; }
+    public int FrameHeight { get; set; }
+
     public double Threshold { get; set; }
 
     // The stream as republished by the media server (MediaMTX). The camera's password is not in it.

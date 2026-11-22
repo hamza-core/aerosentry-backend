@@ -10,10 +10,12 @@ namespace AeroSentry.Api.Services;
 public class WallService : IWallService
 {
     private readonly AppDbContext _db;
+    private readonly IDetectionService _detection;
 
-    public WallService(AppDbContext db)
+    public WallService(AppDbContext db, IDetectionService detection)
     {
         _db = db;
+        _detection = detection;
     }
 
     public async Task<Result<List<WallResponse>>> ListAsync(Guid userId, string role, Guid propertyId)
@@ -98,11 +100,52 @@ public class WallService : IWallService
                 _db.WallCellSquares.RemoveRange(cell.Squares);
         }
 
+        var annotationChanged = AnnotationChanged(wall, request.FrameWidth, request.FrameHeight,
+            request.WallTopPoints, request.WallBottomPoints);
+
         Apply(wall, request);
         await _db.SaveChangesAsync();
 
+        // The ML service holds the annotation of a running session. A new annotation needs a new session.
+        if (annotationChanged)
+            await _detection.ResetSessionAsync(wall.Id);
+
         await _db.Entry(wall).Reference(w => w.Camera).LoadAsync();
         await _db.Entry(wall).Reference(w => w.LaserGrid).LoadAsync();
+        return Result<WallResponse>.Ok(ToResponse(wall));
+    }
+
+    public async Task<Result<WallResponse>> SaveAnnotationAsync(
+        Guid adminId, Guid propertyId, Guid id, WallAnnotationRequest request)
+    {
+        if (!await _db.OwnsProperty(adminId, propertyId))
+            return Result<WallResponse>.NotFound("Property not found");
+
+        var wall = await _db.Walls
+            .Include(w => w.Camera)
+            .Include(w => w.LaserGrid)
+            .Include(w => w.Cells).ThenInclude(c => c.Squares)
+            .FirstOrDefaultAsync(w => w.Id == id && w.PropertyId == propertyId);
+        if (wall is null)
+            return Result<WallResponse>.NotFound("Wall not found");
+
+        if (!ValidPoints(request.WallTopPoints))
+            return Result<WallResponse>.BadRequest("wallTopPoints must be exactly 2 points [x, y], each value from 0 to 1");
+        if (!ValidPoints(request.WallBottomPoints))
+            return Result<WallResponse>.BadRequest("wallBottomPoints must be exactly 2 points [x, y], each value from 0 to 1");
+
+        var changed = AnnotationChanged(wall, request.FrameWidth, request.FrameHeight,
+            request.WallTopPoints, request.WallBottomPoints);
+
+        wall.FrameWidth = request.FrameWidth;
+        wall.FrameHeight = request.FrameHeight;
+        wall.TopPointsJson = JsonSerializer.Serialize(request.WallTopPoints);
+        wall.BottomPointsJson = JsonSerializer.Serialize(request.WallBottomPoints);
+        await _db.SaveChangesAsync();
+
+        if (changed)
+            await _detection.ResetSessionAsync(wall.Id);
+
         return Result<WallResponse>.Ok(ToResponse(wall));
     }
 
@@ -154,6 +197,13 @@ public class WallService : IWallService
 
         return null;
     }
+
+    // Did the annotation (picture size or either line) really change? Same serializer on both sides.
+    private static bool AnnotationChanged(Wall wall, int frameWidth, int frameHeight, double[][] top, double[][] bottom) =>
+        wall.FrameWidth != frameWidth
+        || wall.FrameHeight != frameHeight
+        || wall.TopPointsJson != JsonSerializer.Serialize(top)
+        || wall.BottomPointsJson != JsonSerializer.Serialize(bottom);
 
     private static bool ValidPoints(double[][]? points) =>
         points is { Length: 2 } && points.All(p => p is { Length: 2 } && p.All(v => v >= 0 && v <= 1));

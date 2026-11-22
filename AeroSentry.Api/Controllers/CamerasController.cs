@@ -73,6 +73,22 @@ public class CamerasController : ApiControllerBase
         return Ok(result);
     }
 
+    // GET /api/v1/cameras/get-snapshot?propertyId=...&cameraId=...      (Admin)
+    // Answers with the picture itself (image/jpeg). Its size is in the headers X-Frame-Width and X-Frame-Height:
+    // send those as frameWidth / frameHeight when you save the annotation (walls/save-annotation).
+    [HttpGet("get-snapshot")]
+    [Authorize(Roles = "Admin")]
+    public async Task<IActionResult> GetSnapshot(Guid propertyId, Guid cameraId)
+    {
+        var result = await _cameras.GetSnapshotAsync(CallerId, propertyId, cameraId);
+        if (result.Status != ResultStatus.Success)
+            return FromResult(result);
+
+        Response.Headers["X-Frame-Width"] = result.Value!.Width.ToString();
+        Response.Headers["X-Frame-Height"] = result.Value.Height.ToString();
+        return File(result.Value.Image, "image/jpeg");
+    }
+
     private IActionResult ToActionResult(CameraResult result, bool created)
     {
         return result.Status switch
