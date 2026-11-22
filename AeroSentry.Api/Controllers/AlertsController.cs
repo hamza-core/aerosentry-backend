@@ -52,6 +52,21 @@ public class AlertsController : ApiControllerBase
     public async Task<IActionResult> Escalate(Guid alertId, [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] AlertActionRequest? request = null) =>
         FromResult(await _alerts.ChangeStatusAsync(CallerId, CallerRole, alertId, AlertTransitions.Escalate, request?.Note));
 
+    // POST /api/v1/alerts/confirm-authorized?alertId=...   New or Acknowledged -> ConfirmedAuthorized
+    // "I looked at the picture and this is an authorized person." For an alert whose person the system did or did not recognise.
+    // Final, recorded in the history with who confirmed it. Note: { "note": "Imran, wall maintenance" }.
+    [HttpPost("confirm-authorized")]
+    public async Task<IActionResult> ConfirmAuthorized(Guid alertId, [FromBody(EmptyBodyBehavior = EmptyBodyBehavior.Allow)] AlertActionRequest? request = null) =>
+        FromResult(await _alerts.ChangeStatusAsync(CallerId, CallerRole, alertId, AlertTransitions.ConfirmAuthorized, request?.Note));
+
+    // GET /api/v1/alerts/get-snapshot?alertId=...   the picture taken at the moment of the alarm (image/jpeg), to see who it is
+    [HttpGet("get-snapshot")]
+    public async Task<IActionResult> GetSnapshot(Guid alertId)
+    {
+        var result = await _alerts.GetSnapshotAsync(CallerId, CallerRole, alertId);
+        return result.Status == ResultStatus.Success ? File(result.Value!.Bytes, result.Value.ContentType) : FromResult(result);
+    }
+
     // GET /api/v1/alerts/list-actions?alertId=...      who did what, oldest first
     [HttpGet("list-actions")]
     public async Task<IActionResult> ListActions(Guid alertId) =>

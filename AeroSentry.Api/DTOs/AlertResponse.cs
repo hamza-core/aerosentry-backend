@@ -23,6 +23,15 @@ public class AlertResponse
     public string? CellLabel { get; set; }
 
     public double Probability { get; set; }
+
+    // Set when the person at the wall was recognised as an authorized enrolled person. Null otherwise
+    // (which is the usual case: faces at a wall camera are often too small to recognise).
+    public RecognizedPersonDto? RecognizedPerson { get; set; }
+
+    // True when no automatic response (drone) is sent because every person at the wall was recognised as authorized.
+    // The alert still exists and still needs a guard to look at it and confirm (alerts/confirm-authorized).
+    public bool AutoResponseSkipped { get; set; }
+
     public Guid DetectionEventId { get; set; }
     public DateTime CreatedAtUtc { get; set; }
 }

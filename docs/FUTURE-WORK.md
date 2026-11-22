@@ -39,6 +39,46 @@ What is NOT built yet, and what must be decided before it can be. Update this fi
 ### Planned backend pieces
 `Drone` and `FlightLog` tables, a drone service, status pushed to the apps over SignalR (`DroneStatusChanged`), flight logs per mission.
 
+## Feature 9: authorized people (face ID): built, with one big limit
+
+**Built.** A separate face service (`face-service/`, InsightFace `buffalo_l` like your learning scripts, offline, CPU) and the backend functions
+`people/...` (enrol with 3 photos, check a photo, list, get, update, disable/enable access, remove, identify). See `docs/API.md`.
+On every alarm the backend looks for faces (alarm frame plus a few earlier ones), names a trusted authorized person on the alert, skips the *automatic response* for
+it, and lets a guard confirm it (see below). The alert itself is never suppressed.
+
+**The limit: faces at a wall camera are too small.** Measured on 8 wall clips (1080p and smaller), 12 frames each, with the same detector:
+face width 13 to 50 px (median 37), **none reached 60 px**, the detector found any face in only 41 of 96 frames. ArcFace needs a face of roughly
+60 to 100 px or more to be reliable (your own enrolment script demanded more than 100). So with cameras like the ones in the dataset, recognition
+at the wall will mostly find nothing. It will work where faces are big: an entrance or gate camera, a camera aimed at a doorway, the drone camera at
+close range, or a photo taken by a guard (`people/identify`). The design deck promises "recognised by face on every camera at this property";
+that holds only for cameras that see faces large enough. Test it with the university's cameras before promising it.
+
+**The policy that was chosen (and why).** The alert is **always** created and pushed; a recognised authorized person only switches off the *automatic response*
+(the drone), which matches the deck ("will not trigger an automatic response"). A guard looks at the alarm picture and confirms (`alerts/confirm-authorized`,
+final, with history). Reason: a false match silently clearing a real intruder costs far more than one extra alert. The rules for "trusted" are strict:
+a face at least 60 px wide, the SAME enrolled and still-authorized person in at least 2 of the last frames, and **everyone** in the alarm frame cleared.
+Settings (`Face:` in `appsettings`): `AuthorizedPolicy` (`SkipDrone` default, or `LabelOnly`; anything else counts as `LabelOnly`), `MinRecognizeFaceWidth` 60,
+`MinMatchingFrames` 2, `RecognitionFrames` 5, `MatchThreshold` 0.45. **The drone/dispatch code (Feature 8/10) must check `autoResponseSkipped` before sending a drone.**
+
+**A flaw found by testing, and fixed.** With two people whose boxes overlap almost completely (a real clip), the face detector found ONE face, which lay inside both
+boxes, so it cleared both: a stranger next to or behind an authorized person could have been waved through. Now each face is given to exactly ONE person (the box it
+is inside whose head position it is nearest to). Verified on 3 real two-person clips: that clip now keeps the full response on, and a clip with two visible faces
+clears only when both people are enrolled. Known weak spot that remains: if the wall model gives the SAME person two boxes, the rule fails safe (the second box has no
+face, so the full response stays on). Person tracks come from the wall model: if it swaps two people's ids between frames, trust could be built across the wrong people.
+
+**Threshold 0.45** (`Face:MatchThreshold`), the value of your multi-face script. On your own data: different people scored 0.00 to 0.25 against each
+other (median 0.07), the same person on a new photo 0.43 to 0.86 (mostly 0.64 to 0.86). 0.45 leans strict (it would have missed your weakest photo,
+0.43), which is right for a whitelist. That is 6 identities and 11 photos: not a measured error rate. Measure on real enrolments before relying on it.
+
+**Data protection.** Faces are biometric. Photos and face numbers sit in plain form in the database (like the camera passwords), only admins can
+read them, and removing a person deletes them for good. Get the people's consent, and decide who may hold the database and its backups.
+
+**Not done:** liveness (a photo held up to the camera fools face matching), encrypting photos and alarm pictures at rest, a retention period for alarm pictures,
+and testing with real cameras where faces are large. Your learning folder was only read, never changed. The five `.npy` identities in it (and `ameer_master_identity.npy`, which is the same
+person as `hamza.npy`, similarity 0.97) are not imported; enrol those people through the app with three photos each. `authorized.json` is old
+128-number data from a different model and cannot be used. Liveness (a photo of a face held to the camera fools it), tracking a face across frames, and
+the automatic-response policy are not built.
+
 ## ML service speed: a decision for you and your supervisor
 
 **Finding.** In live mode the ML service re-runs its whole 60-frame window through the bidirectional LSTM on every frame.
@@ -85,7 +125,6 @@ phone login enabled, phone on weak Wi-Fi for hours, phone sleeping, and your CCT
 | IP Webcam (phone) through MediaMTX | Tested directly (`--source camera`). MediaMTX needs the phone's RTSP mode or ffmpeg (not installed on this Mac). Not tested. |
 | Snapshot for RTSP / ONVIF cameras | `cameras/get-snapshot` only works for IP Webcam phones (the backend cannot decode RTSP without ffmpeg). For the others the app captures a frame from the playback stream. |
 | Frame rate | Done: sampled by time at 5/s (the measured training rate), paced to what the ML service can analyse. Open: ML service speed, see the section above. |
-| Feature 9: authorized people (face ID) | Not started. Face service is a separate ML service. |
 | Feature 10: reports and settings | Not started. Includes the automatic response policy and alert notification preferences shown in the design. |
 | Alert notifications outside the app | Push notifications to phones are not built (SignalR only works while the app is open). |
 | Design change | Add an "Annotate wall" screen (2 top points, 2 bottom points on the camera frame) before cell marking. |

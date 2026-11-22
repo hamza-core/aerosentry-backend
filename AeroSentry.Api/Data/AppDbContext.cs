@@ -20,6 +20,8 @@ public class AppDbContext : DbContext
     public DbSet<DetectionEvent> DetectionEvents => Set<DetectionEvent>();
     public DbSet<Alert> Alerts => Set<Alert>();
     public DbSet<AlertAction> AlertActions => Set<AlertAction>();
+    public DbSet<AuthorizedPerson> AuthorizedPeople => Set<AuthorizedPerson>();
+    public DbSet<PersonPhoto> PersonPhotos => Set<PersonPhoto>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -159,6 +161,8 @@ public class AppDbContext : DbContext
 
             entity.Property(a => a.CellLabel).HasMaxLength(50);
             entity.Property(a => a.Status).HasMaxLength(20);
+            entity.Property(a => a.RecognizedPersonName).HasMaxLength(100);
+            entity.Property(a => a.RecognizedPersonCategory).HasMaxLength(20);
 
             // One alert per detection event.
             entity.HasIndex(a => a.DetectionEventId).IsUnique();
@@ -199,6 +203,36 @@ public class AppDbContext : DbContext
             entity.HasOne(a => a.Alert)
                   .WithMany()
                   .HasForeignKey(a => a.AlertId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<AuthorizedPerson>(entity =>
+        {
+            entity.Property(p => p.Name).HasMaxLength(100);
+            entity.Property(p => p.Phone).HasMaxLength(30);
+            entity.Property(p => p.Category).HasMaxLength(20);
+            entity.Property(p => p.Note).HasMaxLength(500);
+
+            entity.HasIndex(p => p.PropertyId);
+
+            entity.HasOne(p => p.Property)
+                  .WithMany()
+                  .HasForeignKey(p => p.PropertyId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<PersonPhoto>(entity =>
+        {
+            entity.Property(p => p.Angle).HasMaxLength(10);
+            entity.Property(p => p.ContentType).HasMaxLength(50);
+
+            // One photo per angle and person.
+            entity.HasIndex(p => new { p.PersonId, p.Angle }).IsUnique();
+
+            // Removing a person removes the photos and the face numbers with it.
+            entity.HasOne(p => p.Person)
+                  .WithMany(p => p.Photos)
+                  .HasForeignKey(p => p.PersonId)
                   .OnDelete(DeleteBehavior.Cascade);
         });
 

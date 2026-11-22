@@ -6,6 +6,14 @@
 - Every endpoint is now `/api/v1/<feature>/<action>` (e.g. `cameras/create`, `walls/save-cells`); ids moved from the path to the query string (`?propertyId=&cameraId=`). Full list in `docs/API.md`.
 - Guards endpoints from Feature 1 changed accordingly: `guards/create`, `guards/list`, `guards/set-status`, `guards/delete`. Auth endpoints did not change.
 
+### Feature 9: Authorized people (face ID)
+- `face-service/` (FastAPI + InsightFace `buffalo_l`, offline) and `people/enroll`, `check-photo`, `list`, `get`, `get-photo`, `update`, `disable-access`, `enable-access`, `delete`, `identify` (admin only).
+- Enrolment takes 3 photos (front, left, right): exactly one face each, at least 100 px, the three must be the same person; duplicates give 409. Matching threshold 0.45.
+- Alarms: faces are looked for in the alarm frame and ~4 earlier ones. A trusted authorized person (face at least 60 px, the same person in at least 2 frames, every person at the wall cleared) is named on the alert (`recognizedPerson`) and the alert gets `autoResponseSkipped` (no automatic drone), policy `Face:AuthorizedPolicy` = `SkipDrone` (default) or `LabelOnly`. The alert itself is never suppressed.
+- `alerts/confirm-authorized` (guard or admin, final, in the history), `alerts/get-snapshot` (the alarm picture, for the guard to see who it is). New alert status `ConfirmedAuthorized`.
+- Found and fixed while testing: one face could clear two overlapping people; each face now belongs to exactly one person.
+- Finding: faces on wall-camera footage are 13 to 50 px wide, too small for reliable recognition. See `docs/FUTURE-WORK.md`.
+
 ### Annotation, IP Webcam and frame rate
 - `GET cameras/get-snapshot` (picture from an IP Webcam phone, with its size) and `PUT walls/save-annotation`; a changed annotation resets the running ML session.
 - Ingest worker now samples by time at 5 frames/s (measured training rate: 65% of training videos are 25 fps, 20% are 30 fps, 14% are 24 fps), paces itself to what the ML service can analyse, and warns when the camera's picture shape differs from the annotation. Details in `ingest-worker/README.md`.
