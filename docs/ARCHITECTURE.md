@@ -106,5 +106,4 @@ Everything runs on one Mac on the local network: SQL Server (Docker), MediaMTX, 
 - Faces at a wall camera are usually too small to recognise (13 to 50 px wide on the dataset's wall footage), so the "authorized person" feature mostly helps on cameras that see faces large.
 - The ML service analyses about 2 frames/s on the GPU and about 14 on the CPU (this Mac); several walls at once has not been measured.
 - The drone feature is not built; the real CCTV cameras and the NVR are untested.
-- A stray ASP.NET template endpoint, `WeatherForecast`, is still in the project and is public: it should be removed.
 - Everything else not done is listed in `docs/FUTURE-WORK.md`.

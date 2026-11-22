@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Removed
+- The leftover ASP.NET template `WeatherForecast` controller and model. It was a public endpoint (`/WeatherForecast`) that returned random sample data and nothing used it.
+
 ### API naming: function-style endpoints
 - Every endpoint is now `/api/v1/<feature>/<action>` (e.g. `cameras/create`, `walls/save-cells`); ids moved from the path to the query string (`?propertyId=&cameraId=`). Full list in `docs/API.md`.
 - Guards endpoints from Feature 1 changed accordingly: `guards/create`, `guards/list`, `guards/set-status`, `guards/delete`. Auth endpoints did not change.
