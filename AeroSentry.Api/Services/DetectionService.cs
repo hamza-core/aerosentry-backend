@@ -15,13 +15,15 @@ public class DetectionService : IDetectionService
     private readonly IMlClient _ml;
     private readonly DetectionSessions _sessions;
     private readonly IConfiguration _config;
+    private readonly IAlertService _alerts;
 
-    public DetectionService(AppDbContext db, IMlClient ml, DetectionSessions sessions, IConfiguration config)
+    public DetectionService(AppDbContext db, IMlClient ml, DetectionSessions sessions, IConfiguration config, IAlertService alerts)
     {
         _db = db;
         _ml = ml;
         _sessions = sessions;
         _config = config;
+        _alerts = alerts;
     }
 
     private double DefaultThreshold => _config.GetValue<double?>("Ml:Threshold") ?? 0.5;
@@ -254,10 +256,14 @@ public class DetectionService : IDetectionService
                 MlSessionId = session.MlSessionId
             };
             _db.DetectionEvents.Add(detection);
-            await _db.SaveChangesAsync();
+
+            // Saves the event AND its alert together, then pushes the alert to the apps over SignalR.
+            var alert = await _alerts.CreateForDetectionAsync(detection, wall.PropertyId);
 
             response.EventId = detection.Id;
             response.CellLabel = detection.CellLabel;
+            response.AlertId = alert.Id;
+            response.IncidentCode = alert.IncidentCode;
         }
 
         return Result<DetectionFrameResponse>.Ok(response);

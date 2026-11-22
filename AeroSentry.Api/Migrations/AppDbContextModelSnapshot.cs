@@ -16,7 +16,7 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261122110730_AddWallDetectionState";
+    public override string LastMigrationId => "20261122111219_AddAlerts";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -26,6 +26,60 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
             .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
         SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.Alert", b =>
+            {
+                b.Property<Guid>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<Guid?>("CellId")
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<string>("CellLabel")
+                    .HasMaxLength(50)
+                    .HasColumnType("nvarchar(50)");
+
+                b.Property<DateTime>("CreatedAtUtc")
+                    .HasColumnType("datetime2");
+
+                b.Property<Guid>("DetectionEventId")
+                    .HasColumnType("uniqueidentifier");
+
+                var number = b.Property<int>("Number")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("int");
+
+                SqlServerPropertyBuilderExtensions.UseIdentityColumn(number);
+
+                b.Property<double>("Probability")
+                    .HasColumnType("float");
+
+                b.Property<Guid>("PropertyId")
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<string>("Status")
+                    .IsRequired()
+                    .HasMaxLength(20)
+                    .HasColumnType("nvarchar(20)");
+
+                b.Property<Guid>("WallId")
+                    .HasColumnType("uniqueidentifier");
+
+                b.HasKey("Id");
+
+                b.HasIndex("DetectionEventId")
+                    .IsUnique();
+
+                b.HasIndex("Number")
+                    .IsUnique();
+
+                b.HasIndex("WallId");
+
+                b.HasIndex("PropertyId", "CreatedAtUtc");
+
+                b.ToTable("Alerts");
+            });
 
         modelBuilder.Entity("AeroSentry.Api.Data.Entities.Camera", b =>
             {
@@ -380,6 +434,33 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                     .IsUnique();
 
                 b.ToTable("WallCellSquares");
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.Alert", b =>
+            {
+                b.HasOne("AeroSentry.Api.Data.Entities.DetectionEvent", "DetectionEvent")
+                    .WithMany()
+                    .HasForeignKey("DetectionEventId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                b.HasOne("AeroSentry.Api.Data.Entities.Property", "Property")
+                    .WithMany()
+                    .HasForeignKey("PropertyId")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired();
+
+                b.HasOne("AeroSentry.Api.Data.Entities.Wall", "Wall")
+                    .WithMany()
+                    .HasForeignKey("WallId")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired();
+
+                b.Navigation("DetectionEvent");
+
+                b.Navigation("Property");
+
+                b.Navigation("Wall");
             });
 
         modelBuilder.Entity("AeroSentry.Api.Data.Entities.Camera", b =>

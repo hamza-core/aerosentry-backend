@@ -47,6 +47,10 @@ public class DetectionFrameResponse
     public Guid? EventId { get; set; }
     public string? CellLabel { get; set; }
 
+    // The alert created for this alarm (already pushed to the apps over SignalR).
+    public Guid? AlertId { get; set; }
+    public string? IncidentCode { get; set; }
+
     public List<DetectedPersonDto> People { get; set; } = new();
 }
 
