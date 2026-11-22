@@ -1,6 +1,6 @@
 using AeroSentry.Api.DTOs;
 
-namespace AeroSentry.Api.Services;
+namespace AeroSentry.Api.Services.Interfaces;
 
 // The only class that talks to the ML service (frozen FastAPI, port 8010).
 // Nothing else in the backend knows its URLs or its JSON.

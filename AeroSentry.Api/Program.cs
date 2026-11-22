@@ -2,6 +2,7 @@ using Scalar.AspNetCore;
 using AeroSentry.Api.Data;
 using AeroSentry.Api.Services;
 using AeroSentry.Api.Hubs;
+using AeroSentry.Api.Services.Interfaces;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 using System.Text;

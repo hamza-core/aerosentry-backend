@@ -1,5 +1,6 @@
 using AeroSentry.Api.DTOs;
 using AeroSentry.Api.Services;
+using AeroSentry.Api.Services.Interfaces;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 

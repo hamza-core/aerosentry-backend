@@ -1,4 +1,4 @@
-namespace AeroSentry.Api.Services;
+namespace AeroSentry.Api.Services.Interfaces;
 
 // The only class that talks to the face service (port 8020). It finds faces in a picture and returns their embeddings.
 public interface IFaceClient

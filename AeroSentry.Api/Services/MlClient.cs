@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using AeroSentry.Api.DTOs;
+using AeroSentry.Api.Services.Interfaces;
 
 namespace AeroSentry.Api.Services;
 

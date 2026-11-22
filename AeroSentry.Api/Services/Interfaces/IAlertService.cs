@@ -1,7 +1,7 @@
 using AeroSentry.Api.Data.Entities;
 using AeroSentry.Api.DTOs;
 
-namespace AeroSentry.Api.Services;
+namespace AeroSentry.Api.Services.Interfaces;
 
 public interface IAlertService
 {

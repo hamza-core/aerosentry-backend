@@ -2,6 +2,7 @@ using System.Net.Sockets;
 using AeroSentry.Api.Data;
 using AeroSentry.Api.Data.Entities;
 using AeroSentry.Api.DTOs;
+using AeroSentry.Api.Services.Interfaces;
 using Microsoft.EntityFrameworkCore;
 
 namespace AeroSentry.Api.Services;

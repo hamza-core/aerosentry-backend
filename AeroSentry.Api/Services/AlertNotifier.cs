@@ -1,6 +1,7 @@
 using AeroSentry.Api.Data;
 using AeroSentry.Api.DTOs;
 using AeroSentry.Api.Hubs;
+using AeroSentry.Api.Services.Interfaces;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.EntityFrameworkCore;
 
