@@ -61,10 +61,14 @@ public class CamerasController : ControllerBase
     [Authorize(Roles = "Admin")]
     public async Task<IActionResult> Delete(Guid propertyId, Guid id)
     {
-        if (!await _cameras.DeleteAsync(CallerId, propertyId, id))
-            return Problem(statusCode: 404, title: "Camera not found");
+        var result = await _cameras.DeleteAsync(CallerId, propertyId, id);
 
-        return NoContent();
+        return result.Status switch
+        {
+            ResultStatus.Success => NoContent(),
+            ResultStatus.Conflict => Problem(statusCode: 409, title: result.Message),
+            _ => Problem(statusCode: 404, title: result.Message)
+        };
     }
 
     // Checks that the camera's host:port is reachable. Nothing is saved.

@@ -16,7 +16,7 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261122102235_AddCameras";
+    public override string LastMigrationId => "20261122103523_AddWallCellRoutes";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -79,6 +79,40 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                     .IsUnique();
 
                 b.ToTable("Cameras");
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.LaserGrid", b =>
+            {
+                b.Property<Guid>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<int>("Columns")
+                    .HasColumnType("int");
+
+                b.Property<DateTime>("CreatedAtUtc")
+                    .HasColumnType("datetime2");
+
+                b.Property<string>("Name")
+                    .IsRequired()
+                    .HasMaxLength(200)
+                    .HasColumnType("nvarchar(200)");
+
+                b.Property<Guid>("PropertyId")
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<int>("Rows")
+                    .HasColumnType("int");
+
+                b.Property<double>("SquareSizeMeters")
+                    .HasColumnType("float");
+
+                b.HasKey("Id");
+
+                b.HasIndex("PropertyId", "Name")
+                    .IsUnique();
+
+                b.ToTable("LaserGrids");
             });
 
         modelBuilder.Entity("AeroSentry.Api.Data.Entities.Property", b =>
@@ -180,7 +214,137 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                 b.ToTable("Users");
             });
 
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.Wall", b =>
+            {
+                b.Property<Guid>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<string>("BottomPointsJson")
+                    .IsRequired()
+                    .HasColumnType("nvarchar(max)");
+
+                b.Property<int?>("CameraGridCol")
+                    .HasColumnType("int");
+
+                b.Property<int?>("CameraGridRow")
+                    .HasColumnType("int");
+
+                b.Property<Guid>("CameraId")
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<DateTime>("CreatedAtUtc")
+                    .HasColumnType("datetime2");
+
+                b.Property<int>("FrameHeight")
+                    .HasColumnType("int");
+
+                b.Property<int>("FrameWidth")
+                    .HasColumnType("int");
+
+                b.Property<Guid?>("LaserGridId")
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<string>("Name")
+                    .IsRequired()
+                    .HasMaxLength(200)
+                    .HasColumnType("nvarchar(200)");
+
+                b.Property<Guid>("PropertyId")
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<string>("TopPointsJson")
+                    .IsRequired()
+                    .HasColumnType("nvarchar(max)");
+
+                b.HasKey("Id");
+
+                b.HasIndex("CameraId");
+
+                b.HasIndex("LaserGridId");
+
+                b.HasIndex("PropertyId", "Name")
+                    .IsUnique();
+
+                b.ToTable("Walls");
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.WallCell", b =>
+            {
+                b.Property<Guid>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<string>("CornersJson")
+                    .IsRequired()
+                    .HasColumnType("nvarchar(max)");
+
+                b.Property<string>("Label")
+                    .IsRequired()
+                    .HasMaxLength(50)
+                    .HasColumnType("nvarchar(50)");
+
+                b.Property<double>("LengthMeters")
+                    .HasColumnType("float");
+
+                b.Property<int>("Position")
+                    .HasColumnType("int");
+
+                b.Property<Guid>("WallId")
+                    .HasColumnType("uniqueidentifier");
+
+                b.HasKey("Id");
+
+                b.HasIndex("WallId", "Label")
+                    .IsUnique();
+
+                b.ToTable("WallCells");
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.WallCellSquare", b =>
+            {
+                b.Property<Guid>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<int>("Col")
+                    .HasColumnType("int");
+
+                b.Property<Guid>("LaserGridId")
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<int>("Order")
+                    .HasColumnType("int");
+
+                b.Property<int>("Row")
+                    .HasColumnType("int");
+
+                b.Property<Guid>("WallCellId")
+                    .HasColumnType("uniqueidentifier");
+
+                b.HasKey("Id");
+
+                b.HasIndex("WallCellId", "Order")
+                    .IsUnique();
+
+                b.HasIndex("LaserGridId", "Row", "Col")
+                    .IsUnique();
+
+                b.ToTable("WallCellSquares");
+            });
+
         modelBuilder.Entity("AeroSentry.Api.Data.Entities.Camera", b =>
+            {
+                b.HasOne("AeroSentry.Api.Data.Entities.Property", "Property")
+                    .WithMany()
+                    .HasForeignKey("PropertyId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                b.Navigation("Property");
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.LaserGrid", b =>
             {
                 b.HasOne("AeroSentry.Api.Data.Entities.Property", "Property")
                     .WithMany()
@@ -229,9 +393,75 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                     .OnDelete(DeleteBehavior.Restrict);
             });
 
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.Wall", b =>
+            {
+                b.HasOne("AeroSentry.Api.Data.Entities.Camera", "Camera")
+                    .WithMany()
+                    .HasForeignKey("CameraId")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired();
+
+                b.HasOne("AeroSentry.Api.Data.Entities.LaserGrid", "LaserGrid")
+                    .WithMany()
+                    .HasForeignKey("LaserGridId")
+                    .OnDelete(DeleteBehavior.Restrict);
+
+                b.HasOne("AeroSentry.Api.Data.Entities.Property", "Property")
+                    .WithMany()
+                    .HasForeignKey("PropertyId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                b.Navigation("Camera");
+
+                b.Navigation("LaserGrid");
+
+                b.Navigation("Property");
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.WallCell", b =>
+            {
+                b.HasOne("AeroSentry.Api.Data.Entities.Wall", "Wall")
+                    .WithMany("Cells")
+                    .HasForeignKey("WallId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                b.Navigation("Wall");
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.WallCellSquare", b =>
+            {
+                b.HasOne("AeroSentry.Api.Data.Entities.LaserGrid", "LaserGrid")
+                    .WithMany()
+                    .HasForeignKey("LaserGridId")
+                    .OnDelete(DeleteBehavior.Restrict)
+                    .IsRequired();
+
+                b.HasOne("AeroSentry.Api.Data.Entities.WallCell", "WallCell")
+                    .WithMany("Squares")
+                    .HasForeignKey("WallCellId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                b.Navigation("LaserGrid");
+
+                b.Navigation("WallCell");
+            });
+
         modelBuilder.Entity("AeroSentry.Api.Data.Entities.Property", b =>
             {
                 b.Navigation("PropertyGuards");
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.Wall", b =>
+            {
+                b.Navigation("Cells");
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.WallCell", b =>
+            {
+                b.Navigation("Squares");
             });
 #pragma warning restore 612, 618
     }

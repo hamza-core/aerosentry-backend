@@ -18,6 +18,9 @@ builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<GuardService>();
 builder.Services.AddScoped<PropertyService>();
 builder.Services.AddScoped<ICameraService, CameraService>();
+builder.Services.AddScoped<ILaserGridService, LaserGridService>();
+builder.Services.AddScoped<IWallService, WallService>();
+builder.Services.AddScoped<IWallCellService, WallCellService>();
 
 builder.Services.AddAuthentication(JwtBearerDefaults.AuthenticationScheme)
     .AddJwtBearer(options =>
