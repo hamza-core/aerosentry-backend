@@ -6,6 +6,9 @@
 - Every endpoint is now `/api/v1/<feature>/<action>` (e.g. `cameras/create`, `walls/save-cells`); ids moved from the path to the query string (`?propertyId=&cameraId=`). Full list in `docs/API.md`.
 - Guards endpoints from Feature 1 changed accordingly: `guards/create`, `guards/list`, `guards/set-status`, `guards/delete`. Auth endpoints did not change.
 
+### Documentation
+- Complete documentation set: `README.md`, `CONTRIBUTING.md`, `docs/ARCHITECTURE.md`, `docs/DATABASE.md` (generated from the live database), `docs/HOW-IT-WORKS.md` (every feature), `docs/TESTING.md`; `docs/API.md` checked against all 73 endpoints. Checked by a script: no file, endpoint, setting or class name in the documents is wrong.
+
 ### Feature 9: Authorized people (face ID)
 - `face-service/` (FastAPI + InsightFace `buffalo_l`, offline) and `people/enroll`, `check-photo`, `list`, `get`, `get-photo`, `update`, `disable-access`, `enable-access`, `delete`, `identify` (admin only).
 - Enrolment takes 3 photos (front, left, right): exactly one face each, at least 100 px, the three must be the same person; duplicates give 409. Matching threshold 0.45.

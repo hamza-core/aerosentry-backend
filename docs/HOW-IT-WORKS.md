@@ -161,3 +161,250 @@ cannot find out which ids are real.
 ### Not done yet
 - Pagination on the properties list.
 - Transferring a property to another admin.
+
+---
+
+## Patterns used by every feature (read this once)
+- **Layers:** Controller -> Service -> `AppDbContext` -> SQL Server. Controllers read the token and turn a result into a status code; services hold every rule; entities are the tables; DTOs are the only things that cross the API (an entity is never returned).
+- **Function-named endpoints:** `/api/v1/<feature>/<action>`, ids in the query string (`cameras/update?propertyId=..&cameraId=..`), the body holds only data. The full list is `docs/API.md`.
+- **`Result<T>`** (`Services/Result.cs`) is what a service returns when it can fail in several ways: `Ok`, `NotFound`, `Conflict`, `BadRequest`, `Unavailable`. `ApiControllerBase.FromResult` maps them to 200/201, 404, 409, 400, 503. (Features 2 and 3 are older and return `null`/`false` or their own small result class; same idea.)
+- **`PropertyAccess`** (`Services/PropertyAccess.cs`) has the one rule "who may see this property" (`VisibleProperties`, `CanSeeProperty`, `OwnsProperty`). Every feature under a property uses it, so access control lives in one place.
+- **404 for "not yours"**, never 403, so ids cannot be probed (Feature 2).
+- **Interfaces:** each new service has an interface (`ICameraService`...), registered in `Program.cs` with `AddScoped<I..., ...>`.
+- **Migrations:** a model change = `dotnet ef migrations add Name` (writes the file, database untouched) then `dotnet ef database update`.
+- **Settings:** secrets in `appsettings.Local.json` (not in git), everything else in `appsettings*.json` (`docs/OFFLINE-CHECKLIST.md`).
+
+---
+
+## Feature 3: Cameras
+
+### What it does
+An admin adds the cameras of a property: an IP Webcam phone, a CCTV camera or an NVR channel. The backend stores the camera's address and login, tells the apps where to play its video, and can check that the camera answers.
+
+### The map
+| File | Its one job |
+|---|---|
+| `Controllers/CamerasController.cs` | The functions of `docs/API.md` -> Cameras; reads the token; maps results to status codes |
+| `DTOs/CameraRequest.cs`, `CameraResponse.cs`, `CameraTestResponse.cs` | What goes in and out (the response never has the password) |
+| `Services/ICameraService.cs`, `CameraService.cs`, `CameraResult.cs` | The rules |
+| `Data/Entities/Camera.cs`, `AppDbContext.cs` | The `Cameras` table and its rules |
+| `Migrations/..._AddCameras.cs` | The SQL that created it |
+
+### Key ideas
+- **Source types:** `MobileApp`, `Onvif`, `Rtsp` (a regular expression on the request). `Onvif` is stored exactly like `Rtsp` (host, port, path): no ONVIF discovery is built.
+- **The password is stored, never returned.** The backend needs it to open the stream, so it is kept in plain form; responses only say `hasPassword`. Encrypting it is not done yet.
+- **Playback address:** the camera answers with `playbackUrl` = `Media:HlsBase` + `/cam-<id>/index.m3u8`. Apps play that (from MediaMTX), never the camera's own address.
+- **Connection test** (`cameras/test-connection`): a TCP connection to host and port with a 3 second limit. It proves the port answers, not that the login or the video works. Nothing is saved.
+- **Names are unique inside a property:** checked in the service (409) and enforced by a unique index (`PropertyId`, `Name`).
+- `StreamPath` is saved with a leading `/`. Port is 1 to 65535.
+- A camera used by a wall cannot be deleted (409): the wall's foreign key is Restrict.
+- Admins write; an assigned guard can read (through `PropertyAccess`).
+
+### Why
+- The playback address is built by the server so the camera's real address and login never reach the apps.
+- Port and path are separate fields (as in the design deck's form) so the app can build a good form and the server can build any URL it needs.
+
+### Check it yourself
+`POST cameras/create` (201), the same name again (409), `GET cameras/list`, `POST cameras/test-connection` for a host that is on (`reachable: true`) and a closed port (`false`, with the reason), `SELECT * FROM Cameras`.
+
+### Not done yet
+Encrypting the stored password; ONVIF discovery; checking that the login and video actually work.
+
+---
+
+## Feature 4: Laser grids, walls, cells and laser routes
+
+### What it does
+After adding cameras the admin describes the property for the system:
+- **Laser grid:** the installed laser squares (rows x columns, each of a chosen size).
+- **Wall:** one camera's view of one wall, plus the **wall annotation**: two top points and two bottom points drawn on a picture of the wall. The ML model cannot run without them.
+- **Cells:** areas of the wall (A1, A2, ...), each with 4 corners and a real length. They tell the system *where* on the wall a person is.
+- **Routes:** for each cell, the grid squares the drone should visit, in order.
+- **Validation:** is the wall ready to use?
+
+### The map
+| File | Its one job |
+|---|---|
+| `Controllers/LaserGridsController.cs`, `WallsController.cs` | The functions (`WallsController` also holds `save-cells`, `set-cell-route`, `validate`, `save-annotation`) |
+| `Services/LaserGridService.cs`, `WallService.cs`, `WallCellService.cs` | The rules (`WallCellService` = cells, routes and validation) |
+| `Services/JpegInfo.cs` | Reads a JPEG's width and height from its header (no image library) |
+| `Data/Entities/LaserGrid.cs`, `Wall.cs`, `WallCell.cs`, `WallCellSquare.cs` | The tables |
+| `DTOs/Laser*`, `Wall*`, `GridSquareDto.cs` | Requests and responses |
+
+### Key ideas
+- **Annotation = numbers between 0 and 1.** A point is `[x, y]` as a fraction of the picture's width and height, so it does not depend on the camera's resolution. Exactly 2 points per line. The wall stores the picture's size (`frameWidth`, `frameHeight`) and the points as JSON text. A wall cannot be created without them.
+- **Cells:** corners in the order top-left, bottom-left, top-right, bottom-right (also 0 to 1). The start and end metre of each cell are *worked out* from the order and lengths (A1 0-10 m, A2 10-20 m...), never stored.
+- **`save-cells` replaces the whole list but matches by label.** A cell that is saved again keeps its id and its route; a cell missing from the list is deleted. A gotcha learnt here: a new child must NOT be given an `Id` when it is added through a tracked parent, or EF thinks it already exists and sends an UPDATE that touches 0 rows.
+- **Routes:** a list of `{row, col}` in drone visiting order. A square belongs to **one** cell on any wall using that grid: checked in the service (409 names the clash) and enforced by a unique index (`LaserGridId`, `Row`, `Col`). Replacing a route deletes the old rows and inserts the new ones **inside one transaction, in two steps**, because a square that stays in the route would otherwise hit the unique index while its old row still exists.
+- **Validation** (`walls/validate`) is computed, never stored: it lists what is missing (no cells, no grid, no camera position, a cell without a route). It answers `Valid` when the list is empty.
+- **Consistency rules:** moving a wall to another grid clears its routes (they are squares of the old grid); shrinking a grid is refused (409) if a route square or the camera position would fall outside it; a grid used by a wall cannot be deleted.
+- **`walls/save-annotation`** saves only the two lines. If they really changed, the running ML session is reset so the new lines are used at once (`IDetectionService.ResetSessionAsync`). `walls/update` does the same when it changes the annotation.
+- **Getting a picture to draw on:** `cameras/get-snapshot` fetches `/shot.jpg` from an IP Webcam phone and reports its size in the headers `X-Frame-Width` and `X-Frame-Height` (read with `JpegInfo`). For RTSP cameras the app captures a frame from the playback stream instead (the backend cannot decode RTSP without ffmpeg).
+
+### Why
+- Fractions keep the annotation valid if the camera's resolution changes (the *shape* must stay the same: the worker warns if it does not).
+- Cell corners live in the camera picture, routes live on the laser grid: they are two different coordinate systems, joined only by the cell.
+- Unique indexes back every "only one" rule so two simultaneous requests cannot both succeed.
+
+### Check it yourself
+Create a grid, a wall with the annotation (400 without it), `PUT walls/save-cells` with two cells, `PUT walls/set-cell-route` for each, `GET walls/validate` (Invalid until every cell has a route, then Valid). Try a square already used (409). `SELECT * FROM WallCellSquares ORDER BY WallCellId, [Order]`.
+
+### Not done yet
+Drawing the annotation needs a screen in the app (it is not in the design deck).
+
+---
+
+## Feature 5: Detection bridge, ingest worker and media server
+
+### What it does
+Turns camera video into alarms. The wall-crossing model (a separate, frozen Python service on port 8010) says "someone is climbing"; the backend works out *which cell* and stores the alarm. Clients never talk to the ML service; only the backend does.
+
+### The flow
+Camera -> MediaMTX -> **ingest worker** -> `worker/send-frame` -> `DetectionService` -> **ML service** -> cell -> `DetectionEvent` (+ alert, Feature 6).
+
+### The map
+| File | Its one job |
+|---|---|
+| `Services/IMlClient.cs`, `MlClient.cs` | The only class that talks to the ML service. Turns its failures into our own exceptions |
+| `Services/DetectionSessions.cs` | One shared map: wall -> its ML session (plus a short history of recent pictures) |
+| `Services/CellLocator.cs` | "Which cell is this point in?" (ray casting) |
+| `Services/DetectionService.cs` | start, frame, stop, list events, worker jobs |
+| `Controllers/DetectionController.cs`, `MlController.cs`, `WorkerController.cs` | The functions |
+| `Data/Entities/DetectionEvent.cs` | One stored alarm (with the alarm picture) |
+| `ingest-worker/worker.py` | Reads the streams, posts frames |
+| `media/`, `ml-service/`, `tools/probe-rtsp.py` | MediaMTX setup, CPU/GPU switch, finding a camera's RTSP address |
+
+### Key ideas
+- **How the ML service works** (read from its code): live mode keeps a session per camera in memory. Each picture you send counts as one sample; every time, it re-runs its trailing window of up to 60 samples through a bidirectional LSTM and answers a probability, `alarm_active` and `alarm_raised` (true only on the frame where a new alarm starts), plus a box per person. Its README shows wall points as `[[x,y]]` but the API wants `[{"x":..,"y":..}]`; `MlClient` converts.
+- **Sessions:** `detection/start` closes any old session, opens a new one with the wall's annotation, and saves `DetectionEnabled` (and the threshold) **in the database**, so watching survives a backend restart. A frame for a wall with no session opens one by itself. If the ML service restarted and forgot the session (it answers 404), the backend opens a new one and retries once. A per-wall lock (`SemaphoreSlim`) keeps frames of one wall in order.
+- **Which cell:** the person's foot point is the bottom centre of their box. `CellLocator` tests it against each cell's 4 corners by ray casting (draw a line to the right; an odd number of edge crossings = inside). A point outside every cell gives no cell.
+- **An alarm:** the stored `DetectionEvent` has the cell, the probability, the frame number and the alarm picture. The person used is the most confident one standing in a cell.
+- **Errors:** ML service down or its models not loaded = 503; a picture it cannot read = 400.
+- **The worker** asks `worker/get-jobs` which walls are switched on and reads each stream. It keeps frames by **time**, not by counting: about 5 per second, because the model was trained on one frame in every 5 of videos that are mostly 25 fps (measured on the training set: 65% 25 fps, 20% 30 fps, 14% 24 fps). It measures how long a frame takes to analyse and **paces itself** to the speed the ML service can keep up; if a frame is still in flight when the next is due, the new one is skipped. It reads RTSP over **TCP** because UDP lost packets over Wi-Fi.
+- **The worker's key:** it has no user login, so `worker/*` is protected by the header `X-Worker-Key` (`Worker:ApiKey`), compared in constant time. A user's token does not work there and the key works nowhere else. A `CHANGE-ME` key never works.
+- **MediaMTX** pulls each camera once and serves it as RTSP (for the worker) and HLS (for the apps): the camera sees one connection however many watch. Camera blocks in `media/mediamtx.yml` are named `cam-<cameraId>`.
+- **CPU or GPU ML:** the same model runs about 2 frames/s on the GPU (live window full) and about 14 on the CPU on the development Mac, with identical answers (7 clips, 292 frames). `ml-service/start-ml.sh cpu|gpu` switches between the original (GPU) and a CPU copy. See `docs/FUTURE-WORK.md` for the decision.
+
+### Why
+- One class owns the ML conversation so a change in the ML service touches one file.
+- Sampling by time makes any camera frame rate look the same to the model.
+- Saving "being watched" in the database means a restart does not silently stop protection.
+
+### Check it yourself
+Start MediaMTX, the ML service and the backend; `POST detection/start`; run the worker (`docs/OFFLINE-CHECKLIST.md`, step 8); read the worker's log (`camera ~30 fps | sent 5.0/s`); `GET detection/list-events`; `SELECT TOP 5 Id, CellLabel, Probability FROM DetectionEvents ORDER BY DetectedAtUtc DESC`.
+
+### Not done yet
+Several walls at once has not been measured; the real CCTV cameras and the NVR are untested (`docs/REAL-CAMERAS.md`).
+
+---
+
+## Feature 6: Alerts and real-time
+
+### What it does
+Every alarm becomes an **alert** with an incident number (INC-0001...), stored for the alerts log and **pushed live** to the owner and the guards of that property.
+
+### The map
+| File | Its one job |
+|---|---|
+| `Data/Entities/Alert.cs` | The table, and the status names |
+| `Services/AlertService.cs` | Creates alerts, lists them, reads one |
+| `Services/AlertNotifier.cs` | Works out who must be told and pushes to them |
+| `Hubs/AlertsHub.cs` | The SignalR channel at `/hubs/alerts` (clients only listen), and `SubUserIdProvider` |
+| `Controllers/AlertsController.cs` | The functions |
+| `Program.cs` | `AddSignalR`, the JWT-in-query-string rule for `/hubs`, CORS, `MapHub` |
+
+### Key ideas
+- **One alarm = one alert**, saved in the same `SaveChanges` as its detection event. The incident number is a database `IDENTITY` column, so two alarms at the same moment can never get the same number.
+- **Who gets the push:** the owner and every **active** guard assigned to the property, **worked out at the moment of the alarm** (not when someone connects). A guard assigned a minute ago gets it; a suspended one does not. `SubUserIdProvider` tells SignalR that a user's id is the token's `sub`.
+- **A failed push never fails the frame:** the alert is already stored; the failure is only logged.
+- **Browsers cannot put a header on a WebSocket,** so for paths under `/hubs` the token may come as `?access_token=`.
+- **CORS** (`Cors:Origins`) is what lets a browser app (ReactJS) call the API and the hub.
+- **The log:** newest first, paged (`page`, `pageSize` up to 100), filter by `status`. Without `propertyId` it covers every property the caller can see. An alert of a property you cannot see is a 404.
+
+### Why
+- Computing recipients at alarm time means access changes take effect immediately.
+- The hub only pushes; all changes go through normal REST calls, which keeps the rules and the checks in one place.
+
+### Check it yourself
+Connect to the hub with a token (a SignalR client; see `docs/API.md`), run an alarm, see `AlertRaised` arrive; `GET alerts/list`; `SELECT Number, Status, CellLabel FROM Alerts`.
+
+### Not done yet
+Push notifications to phones when the app is closed; repeated alarms are not merged into one incident.
+
+---
+
+## Feature 7: Alert actions
+
+### What it does
+People respond to an alert: acknowledge, mark false alarm, close, escalate (admin only), or confirm "this is an authorized person". Every step is kept in a history and pushed live.
+
+### The map
+`Services/AlertTransitions.cs` (the rules), `AlertService.ChangeStatusAsync` (does it), `Data/Entities/AlertAction.cs` (the history table), `Controllers/AlertsController.cs`, `Hubs/ConnectionTracker.cs` (closes connections).
+
+### The rules (`AlertTransitions`)
+| Action | Allowed from | Becomes |
+|---|---|---|
+| acknowledge | New | Acknowledged |
+| mark-false-alarm | New, Acknowledged | FalseAlarm (final) |
+| close | New, Acknowledged, Escalated | Closed (final) |
+| escalate (admin) | New, Acknowledged | Escalated |
+| confirm-authorized | New, Acknowledged | ConfirmedAuthorized (final) |
+
+### Key ideas
+- **Compare-and-set:** the service reads the current status, checks the rule, then updates with `WHERE Id = .. AND Status = <what it read>`. If two people press at once, exactly one update changes a row and the other gets 409.
+- **History:** each action writes an `AlertActions` row (action, from, to, who, role, note, time). The person's name is **copied** into the row, so the history stays readable if the guard is deleted.
+- **Live:** every change is pushed as `AlertUpdated` to the same people as the alert.
+- **A guard who is suspended or deleted loses their open connection at once:** `ConnectionTracker` remembers each open hub connection and aborts them (`GuardService`). The hub also closes a connection when its token expires (`CloseOnAuthenticationExpiration`).
+- Admins and assigned guards can act; only an admin can escalate (403 for a guard, from the attribute).
+
+### Why
+A status machine in one file is easy to read and to change; compare-and-set is the simplest way to be safe against double presses without locks.
+
+### Check it yourself
+Create an alert, `POST alerts/acknowledge`, again (409), `POST alerts/close`, then `acknowledge` (409, final); `GET alerts/list-actions`; `SELECT * FROM AlertActions ORDER BY AtUtc`.
+
+---
+
+## Feature 8: Drone (planned, not built)
+The eleven `drones/...` functions answer **501 Not Implemented** so the app teams can see the planned names. Nothing else exists: the Raspberry Pi side, its protocol, the telemetry and the dispatch are open decisions listed in `docs/FUTURE-WORK.md`. What is ready for it: an alert knows its wall and cell, a cell knows its laser route, and an alert can carry `autoResponseSkipped` (the drone code must check it).
+
+---
+
+## Feature 9: Authorized people (face ID)
+
+### What it does
+An admin enrols people (resident, employee, visitor) with three photos. When someone climbs a wall the backend looks for their face; a trusted authorized person gets the alert marked "no automatic response", and a guard confirms by looking at the alarm picture. **The alert is never suppressed.**
+
+### The map
+| File | Its one job |
+|---|---|
+| `face-service/app.py` | Finds faces in a picture and returns each face's box and its 512-number embedding. Stores nothing |
+| `Services/IFaceClient.cs`, `FaceClient.cs` | The only class that talks to the face service |
+| `Services/FaceMath.cs` | dot product, average, bytes <-> numbers |
+| `Services/PersonService.cs` | Enrolment rules, matching, status, identify, the alarm rules |
+| `Controllers/PeopleController.cs` | The functions (admin only) |
+| `Data/Entities/AuthorizedPerson.cs` (+ `PersonPhoto`) | The tables |
+| `Services/DetectionService.cs` | Calls the alarm rules; sets `autoResponseSkipped` |
+
+### Key ideas
+- **A face is 512 numbers of length 1.** Two faces are alike when their dot product (cosine similarity) is high: about 0.5 to 1.0 for the same person, about 0 to 0.25 for different people on the project's own photos. Threshold `Face:MatchThreshold` = 0.45. The backend stores the numbers and matches; the face service never knows anyone.
+- **Enrolment** (`people/enroll`): three photos, each with **exactly one face, at least 100 px wide**; the three must look like the same person (every pair at least 0.30); a face already enrolled is a 409. The person's face vector is the average of the three, scaled back to length 1 (the same method as the `enroll_user.py` learning script, which lives in `Documents/CV/learn`, outside this repository).
+- **Status is worked out, never stored:** `Disabled` (access off), `Expired` (today is past `validUntil`; the last day counts) or `Authorized`.
+- **On an alarm** (`RecognizeForAlarmAsync`) the faces are looked for in the alarm frame and a few earlier ones (about 2 seconds, kept in `DetectionSessions`). A person is **trusted** only if: the face is at least 60 px wide; the same enrolled, still-authorized person matched in at least 2 different frames; and nobody else matched on that person. Each face is given to **exactly one** person (the box it is inside whose head position it is nearest to), so one face can never vouch for two. The response is skipped only if **everyone** at the wall is trusted.
+- **What the alert gets:** `recognizedPerson` (named), `autoResponseSkipped` (policy `Face:AuthorizedPolicy`: `SkipDrone` default, `LabelOnly`, anything else counts as `LabelOnly`). The alarm picture is saved (`alerts/get-snapshot`) and a guard confirms with `alerts/confirm-authorized` (Feature 7).
+- **Best effort:** if the face service is down, the alert is created as usual. A bug found by testing and fixed: with two people whose boxes overlapped, one face used to clear both.
+- **Privacy:** admin only; removing a person deletes the photos and the numbers for good (cascade).
+
+### Why
+- Never silencing an alert is the safe choice: a false match costs far more than one extra alert.
+- Requiring a big face, several frames and everyone cleared makes a wrong "trusted" very unlikely.
+
+### The big limit
+On the dataset's wall footage faces are only 13 to 50 px wide (none reached 60 px), so on such cameras this will rarely trigger. It works where faces are large (an entrance camera, close-up). Measured details: `docs/FUTURE-WORK.md`.
+
+### Check it yourself
+Start the face service, `POST people/check-photo` with a clear photo (ok) and a picture without a face (not ok), `POST people/enroll` with three photos, `POST people/identify` with a new photo of the same person (`matched: true`) and a stranger (`false`), `SELECT Name, Category, AccessDisabled FROM AuthorizedPeople`.
+
+### Not done yet
+Liveness (a photo held to the camera), encrypting the face data and alarm pictures, a retention period for alarm pictures, tests with real cameras where faces are large.
+
