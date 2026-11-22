@@ -26,7 +26,9 @@ public class PropertyService
             Name = request.Name.Trim(),
             Address = request.Address.Trim(),
             Latitude = request.Latitude,
-            Longitude = request.Longitude
+            Longitude = request.Longitude,
+            Note = request.Note?.Trim()
+            
         };
 
         _db.Properties.Add(property);
@@ -61,6 +63,7 @@ public class PropertyService
         property.Address = request.Address.Trim();
         property.Latitude = request.Latitude;
         property.Longitude = request.Longitude;
+        property.Note = request.Note?.Trim();
         await _db.SaveChangesAsync();
 
         return ToResponse(property);
@@ -144,6 +147,7 @@ public class PropertyService
         Address = p.Address,
         Latitude = p.Latitude,
         Longitude = p.Longitude,
-        CreatedAtUtc = p.CreatedAtUtc
+        CreatedAtUtc = p.CreatedAtUtc,
+        Note = p.Note
     };
 }

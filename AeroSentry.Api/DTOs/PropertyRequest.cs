@@ -11,6 +11,9 @@ public class PropertyRequest
     [Required, StringLength(300)]
     public string Address { get; set; } = string.Empty;
 
+    [StringLength(500)]
+    public string? Note {get; set;}
+
     [Range(-90, 90)]
     public double? Latitude { get; set; }
 
