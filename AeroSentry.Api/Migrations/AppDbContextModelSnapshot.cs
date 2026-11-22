@@ -16,7 +16,7 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261122103118_AddWalls";
+    public override string LastMigrationId => "20261122103247_AddWallCells";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -269,6 +269,38 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                 b.ToTable("Walls");
             });
 
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.WallCell", b =>
+            {
+                b.Property<Guid>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<string>("CornersJson")
+                    .IsRequired()
+                    .HasColumnType("nvarchar(max)");
+
+                b.Property<string>("Label")
+                    .IsRequired()
+                    .HasMaxLength(50)
+                    .HasColumnType("nvarchar(50)");
+
+                b.Property<double>("LengthMeters")
+                    .HasColumnType("float");
+
+                b.Property<int>("Position")
+                    .HasColumnType("int");
+
+                b.Property<Guid>("WallId")
+                    .HasColumnType("uniqueidentifier");
+
+                b.HasKey("Id");
+
+                b.HasIndex("WallId", "Label")
+                    .IsUnique();
+
+                b.ToTable("WallCells");
+            });
+
         modelBuilder.Entity("AeroSentry.Api.Data.Entities.Camera", b =>
             {
                 b.HasOne("AeroSentry.Api.Data.Entities.Property", "Property")
@@ -355,9 +387,25 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                 b.Navigation("Property");
             });
 
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.WallCell", b =>
+            {
+                b.HasOne("AeroSentry.Api.Data.Entities.Wall", "Wall")
+                    .WithMany("Cells")
+                    .HasForeignKey("WallId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                b.Navigation("Wall");
+            });
+
         modelBuilder.Entity("AeroSentry.Api.Data.Entities.Property", b =>
             {
                 b.Navigation("PropertyGuards");
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.Wall", b =>
+            {
+                b.Navigation("Cells");
             });
 #pragma warning restore 612, 618
     }

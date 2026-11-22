@@ -28,4 +28,6 @@ public class Wall
     public int? CameraGridCol { get; set; }
 
     public DateTime CreatedAtUtc { get; set; } = DateTime.UtcNow;
+
+    public List<WallCell> Cells { get; set; } = new();
 }

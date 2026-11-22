@@ -15,6 +15,7 @@ public class AppDbContext : DbContext
     public DbSet<Camera> Cameras => Set<Camera>();
     public DbSet<LaserGrid> LaserGrids => Set<LaserGrid>();
     public DbSet<Wall> Walls => Set<Wall>();
+    public DbSet<WallCell> WallCells => Set<WallCell>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -96,6 +97,19 @@ public class AppDbContext : DbContext
                   .WithMany()
                   .HasForeignKey(w => w.LaserGridId)
                   .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        modelBuilder.Entity<WallCell>(entity =>
+        {
+            entity.Property(c => c.Label).HasMaxLength(50);
+
+            // No two cells on the same wall may share a label.
+            entity.HasIndex(c => new { c.WallId, c.Label }).IsUnique();
+
+            entity.HasOne(c => c.Wall)
+                  .WithMany(w => w.Cells)
+                  .HasForeignKey(c => c.WallId)
+                  .OnDelete(DeleteBehavior.Cascade);
         });
 
         modelBuilder.Entity<PropertyGuard>(entity =>

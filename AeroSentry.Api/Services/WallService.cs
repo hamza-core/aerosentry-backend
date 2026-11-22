@@ -23,6 +23,7 @@ public class WallService : IWallService
 
         var walls = await _db.Walls
             .Include(w => w.Camera)
+            .Include(w => w.Cells)
             .Where(w => w.PropertyId == propertyId)
             .OrderBy(w => w.Name)
             .ToListAsync();
@@ -35,7 +36,7 @@ public class WallService : IWallService
         if (!await _db.CanSeeProperty(userId, role, propertyId))
             return Result<WallResponse>.NotFound("Property not found");
 
-        var wall = await _db.Walls.Include(w => w.Camera)
+        var wall = await _db.Walls.Include(w => w.Camera).Include(w => w.Cells)
             .FirstOrDefaultAsync(w => w.Id == id && w.PropertyId == propertyId);
 
         return wall is null
@@ -71,7 +72,8 @@ public class WallService : IWallService
         if (!await _db.OwnsProperty(adminId, propertyId))
             return Result<WallResponse>.NotFound("Property not found");
 
-        var wall = await _db.Walls.FirstOrDefaultAsync(w => w.Id == id && w.PropertyId == propertyId);
+        var wall = await _db.Walls.Include(w => w.Cells)
+            .FirstOrDefaultAsync(w => w.Id == id && w.PropertyId == propertyId);
         if (wall is null)
             return Result<WallResponse>.NotFound("Wall not found");
 
@@ -169,6 +171,8 @@ public class WallService : IWallService
         LaserGridId = w.LaserGridId,
         CameraGridRow = w.CameraGridRow,
         CameraGridCol = w.CameraGridCol,
-        CreatedAtUtc = w.CreatedAtUtc
+        CreatedAtUtc = w.CreatedAtUtc,
+        TotalLengthMeters = w.Cells.Sum(c => c.LengthMeters),
+        Cells = WallCellService.ToResponses(w.Cells)
     };
 }

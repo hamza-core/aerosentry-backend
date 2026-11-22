@@ -15,4 +15,7 @@ public class WallResponse
     public int? CameraGridRow { get; set; }
     public int? CameraGridCol { get; set; }
     public DateTime CreatedAtUtc { get; set; }
+
+    public double TotalLengthMeters { get; set; }
+    public List<WallCellResponse> Cells { get; set; } = new();
 }
