@@ -131,5 +131,6 @@ phone login enabled, phone on weak Wi-Fi for hours, phone sleeping, and your CCT
 | Secrets in git | `appsettings.json` holds the SQL password, JWT key and worker key and is deliberately not committed. For a team, move them to `dotnet user-secrets` or `.env`. |
 | Interfaces for old services | `AuthService`, `GuardService`, `PropertyService` have no interfaces yet (new services do). |
 | CLAUDE.md end-of-feature duties | `docs/HOW-IT-WORKS.md` sections, `docs/OFFLINE-CHECKLIST.md` updates, and the three "change it yourself" exercises are not written for Features 3 to 7. |
-| Tests | Checked with scripts run by hand, not an automated test project. |
+| Tests | Checked with scripts run by hand, not an automated test project, and the scripts are not in the repository. Move them into a `tests/` folder (making their file paths settings) and run them in CI. `docs/TESTING.md` says what was covered. |
+| `WeatherForecast` sample endpoint | The leftover ASP.NET template controller (`Controllers/WeatherForecastController.cs`, `WeatherForecast.cs`) is still there and answers publicly at `/WeatherForecast`. Remove both files. |
 | Production hardening | No rate limiting, no HTTPS setup for the LAN demo, CORS origins are the local dev ones. |
