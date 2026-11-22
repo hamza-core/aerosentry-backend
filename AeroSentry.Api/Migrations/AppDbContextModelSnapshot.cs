@@ -16,7 +16,7 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261122102235_AddCameras";
+    public override string LastMigrationId => "20261122102942_AddLaserGrids";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -79,6 +79,40 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                     .IsUnique();
 
                 b.ToTable("Cameras");
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.LaserGrid", b =>
+            {
+                b.Property<Guid>("Id")
+                    .ValueGeneratedOnAdd()
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<int>("Columns")
+                    .HasColumnType("int");
+
+                b.Property<DateTime>("CreatedAtUtc")
+                    .HasColumnType("datetime2");
+
+                b.Property<string>("Name")
+                    .IsRequired()
+                    .HasMaxLength(200)
+                    .HasColumnType("nvarchar(200)");
+
+                b.Property<Guid>("PropertyId")
+                    .HasColumnType("uniqueidentifier");
+
+                b.Property<int>("Rows")
+                    .HasColumnType("int");
+
+                b.Property<double>("SquareSizeMeters")
+                    .HasColumnType("float");
+
+                b.HasKey("Id");
+
+                b.HasIndex("PropertyId", "Name")
+                    .IsUnique();
+
+                b.ToTable("LaserGrids");
             });
 
         modelBuilder.Entity("AeroSentry.Api.Data.Entities.Property", b =>
@@ -181,6 +215,17 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
             });
 
         modelBuilder.Entity("AeroSentry.Api.Data.Entities.Camera", b =>
+            {
+                b.HasOne("AeroSentry.Api.Data.Entities.Property", "Property")
+                    .WithMany()
+                    .HasForeignKey("PropertyId")
+                    .OnDelete(DeleteBehavior.Cascade)
+                    .IsRequired();
+
+                b.Navigation("Property");
+            });
+
+        modelBuilder.Entity("AeroSentry.Api.Data.Entities.LaserGrid", b =>
             {
                 b.HasOne("AeroSentry.Api.Data.Entities.Property", "Property")
                     .WithMany()

@@ -13,6 +13,7 @@ public class AppDbContext : DbContext
     public DbSet<Property> Properties => Set<Property>();
     public DbSet<PropertyGuard> PropertyGuards => Set<PropertyGuard>();
     public DbSet<Camera> Cameras => Set<Camera>();
+    public DbSet<LaserGrid> LaserGrids => Set<LaserGrid>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
@@ -55,6 +56,19 @@ public class AppDbContext : DbContext
             entity.HasOne(c => c.Property)
                   .WithMany()
                   .HasForeignKey(c => c.PropertyId)
+                  .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        modelBuilder.Entity<LaserGrid>(entity =>
+        {
+            entity.Property(g => g.Name).HasMaxLength(200);
+
+            // No two laser grids in the same property may share a name.
+            entity.HasIndex(g => new { g.PropertyId, g.Name }).IsUnique();
+
+            entity.HasOne(g => g.Property)
+                  .WithMany()
+                  .HasForeignKey(g => g.PropertyId)
                   .OnDelete(DeleteBehavior.Cascade);
         });
 
