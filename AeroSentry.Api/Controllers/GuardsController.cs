@@ -21,7 +21,8 @@ public class GuardsController : ControllerBase
     // The caller's id, read from the "sub" claim of the validated token.
     private Guid AdminId => Guid.Parse(User.FindFirstValue("sub")!);
 
-    [HttpPost]
+    // POST /api/v1/guards/create
+    [HttpPost("create")]
     public async Task<IActionResult> Create(RegisterRequest request)
     {
         var result = await _guards.CreateAsync(AdminId, request);
@@ -31,9 +32,9 @@ public class GuardsController : ControllerBase
         return StatusCode(StatusCodes.Status201Created, result);
     }
 
-    // GET /api/v1/guards                          -> all my guards
-    // GET /api/v1/guards?status=Active|Suspended -> only that status
-    [HttpGet]
+    // GET /api/v1/guards/list                          -> all my guards
+    // GET /api/v1/guards/list?status=Active|Suspended  -> only that status
+    [HttpGet("list")]
     public async Task<IActionResult> List(string? status = null)
     {
         if (status is not null &&
@@ -46,20 +47,22 @@ public class GuardsController : ControllerBase
         return Ok(await _guards.ListAsync(AdminId, status));
     }
 
-    [HttpPatch("{id:guid}/status")]
-    public async Task<IActionResult> SetStatus(Guid id, UpdateGuardStatusRequest request)
+    // PATCH /api/v1/guards/set-status?guardId=...   body: { "status": "Suspended" }
+    [HttpPatch("set-status")]
+    public async Task<IActionResult> SetStatus(Guid guardId, UpdateGuardStatusRequest request)
     {
-        var result = await _guards.SetStatusAsync(AdminId, id, request.Status);
+        var result = await _guards.SetStatusAsync(AdminId, guardId, request.Status);
         if (result is null)
             return Problem(statusCode: 404, title: "Guard not found");
 
         return Ok(result);
     }
 
-    [HttpDelete("{id:guid}")]
-    public async Task<IActionResult> Delete(Guid id)
+    // DELETE /api/v1/guards/delete?guardId=...
+    [HttpDelete("delete")]
+    public async Task<IActionResult> Delete(Guid guardId)
     {
-        var deleted = await _guards.DeleteAsync(AdminId, id);
+        var deleted = await _guards.DeleteAsync(AdminId, guardId);
         if (!deleted)
             return Problem(statusCode: 404, title: "Guard not found");
 
