@@ -33,6 +33,11 @@ public class Alert
     public string? RecognizedPersonCategory { get; set; }
     public double? RecognitionScore { get; set; }
 
+    // True when the automatic response (the drone, Feature 8/10) must NOT be sent for this alert, because every person
+    // at the wall was recognised as an authorized person. The alert itself is never suppressed: a guard still sees it
+    // and confirms it (see AlertTransitions.ConfirmAuthorized). Whatever sends drones must check this flag.
+    public bool AutoResponseSkipped { get; set; }
+
     // See AlertStatus. Feature 7 (alert actions) moves an alert from New to the other states.
     public string Status { get; set; } = AlertStatus.New;
 
@@ -47,6 +52,8 @@ public static class AlertStatus
     public const string FalseAlarm = "FalseAlarm";
     public const string Closed = "Closed";
     public const string Escalated = "Escalated";
+    // A guard or admin looked at it and confirmed the person is authorized.
+    public const string ConfirmedAuthorized = "ConfirmedAuthorized";
 
-    public static readonly string[] All = { New, Acknowledged, FalseAlarm, Closed, Escalated };
+    public static readonly string[] All = { New, Acknowledged, FalseAlarm, Closed, Escalated, ConfirmedAuthorized };
 }

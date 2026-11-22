@@ -110,6 +110,7 @@ Every alarm the detection bridge stores becomes an alert automatically (one alar
 |---|---|---|
 | Alerts log, newest first. `propertyId` is optional (leave out = every property I can see); optional `status`, `page`, `pageSize` | `GET alerts/list[?propertyId=&status=New&page=1&pageSize=20]` | any |
 | One alert | `GET alerts/get?alertId=` | any |
+| The picture taken at the moment of the alarm (`image/jpeg`), to see who it is | `GET alerts/get-snapshot?alertId=` | any (owner and assigned guards) |
 
 ### Alert actions
 Body is optional: `{ "note": "text up to 500 characters" }`. Each returns the updated alert (200). **409** if the alert's current
@@ -120,6 +121,7 @@ status does not allow the action. Admins and guards assigned to the property can
 | It was nothing | `POST alerts/mark-false-alarm?alertId=` | New, Acknowledged | FalseAlarm (final) |
 | Incident over | `POST alerts/close?alertId=` | New, Acknowledged, Escalated | Closed (final) |
 | Call the authorities | `POST alerts/escalate?alertId=` (Admin) | New, Acknowledged | Escalated |
+| **I looked at the picture: this is an authorized person** | `POST alerts/confirm-authorized?alertId=` | New, Acknowledged | ConfirmedAuthorized (final) |
 | History: who did what and when, oldest first | `GET alerts/list-actions?alertId=` | | |
 
 History entry: `action`, `fromStatus`, `toStatus`, `byUserId`, `byName`, `byRole`, `note`, `atUtc`.
@@ -127,7 +129,8 @@ If two people press at the same moment, exactly one succeeds and the other gets 
 
 Alert: `id`, `number`, `incidentCode` (`INC-0042`), `status` (`New`, later `Acknowledged`, `FalseAlarm`, `Closed`, `Escalated`),
 `propertyId/Name`, `wallId/Name`, `cameraId/Name`, `cellId`, `cellLabel` (null if the person was outside every cell),
-`probability`, `recognizedPerson` (see Authorized people; usually null), `detectionEventId`, `createdAtUtc`. Admins see alerts of their properties, guards of the properties they are assigned to.
+`probability`, `recognizedPerson` and `autoResponseSkipped` (see Authorized people; usually null / false), `detectionEventId`, `createdAtUtc`.
+`status` can also be `ConfirmedAuthorized`. Admins see alerts of their properties, guards of the properties they are assigned to.
 
 ### Live alerts (SignalR)
 New alerts are **pushed** to the app, no polling.
@@ -182,9 +185,16 @@ look like the same person. Errors name the photo ("The Left photo: no face was f
 **Identify** answers every face in the picture: `box`, `bestScore`, `matched` (score at least `Face:MatchThreshold`, 0.45), the `person`, and `isAuthorized`
 (matched and status `Authorized`). 503 when the face service is not running.
 
-**On alarms.** When the wall model raises an alarm, the backend also looks for a face inside the person's box; if it is an `Authorized` enrolled person,
-the alert (and the SignalR push) carries `recognizedPerson` `{ id, name, category, score }`. It is **informational only**: the alert is still created
-and still needs a person to look at it; disabled and expired people are never flagged; if the face service is down the alert is created without it.
+**On alarms (the rule).** The alert is **always** created and pushed. When the wall model raises an alarm, the backend also looks for faces in the alarm
+frame and a few earlier frames (about 2 seconds). A person is *trusted* only if ONE enrolled person, still `Authorized`, matched on them in at least
+`Face:MinMatchingFrames` (2) different frames, with a face at least `Face:MinRecognizeFaceWidth` (60) px wide; each face is given to exactly one person
+(so one face can never vouch for two). Then:
+- the alert carries `recognizedPerson` `{ id, name, category, score }`;
+- if **everyone** at the wall is trusted (policy `Face:AuthorizedPolicy` = `SkipDrone`, the default) the alert has `autoResponseSkipped: true`: **no automatic
+  drone must be sent** for it (the drone feature must check this flag). One unknown person, or no visible face, means the full response stays on;
+- a guard or admin looks at `alerts/get-snapshot` and presses `alerts/confirm-authorized` (recorded in the history, final).
+Disabled and expired people are never trusted. If the face service is down the alert is created as usual, without any of this.
+With `LabelOnly` (or any unknown value) the alert only names the person and the full response stays on.
 Faces at a wall camera are often too small to recognise (see `docs/FUTURE-WORK.md`), so expect `recognizedPerson` to be null most of the time.
 
 ## Worker (only for the ingest worker program, not for apps)

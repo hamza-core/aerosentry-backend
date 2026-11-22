@@ -43,7 +43,8 @@ What is NOT built yet, and what must be decided before it can be. Update this fi
 
 **Built.** A separate face service (`face-service/`, InsightFace `buffalo_l` like your learning scripts, offline, CPU) and the backend functions
 `people/...` (enrol with 3 photos, check a photo, list, get, update, disable/enable access, remove, identify). See `docs/API.md`.
-On every alarm the backend looks for a face inside the person's box and flags the alert with `recognizedPerson` when it is an authorized person.
+On every alarm the backend looks for faces (alarm frame plus a few earlier ones), names a trusted authorized person on the alert, skips the *automatic response* for
+it, and lets a guard confirm it (see below). The alert itself is never suppressed.
 
 **The limit: faces at a wall camera are too small.** Measured on 8 wall clips (1080p and smaller), 12 frames each, with the same detector:
 face width 13 to 50 px (median 37), **none reached 60 px**, the detector found any face in only 41 of 96 frames. ArcFace needs a face of roughly
@@ -52,10 +53,18 @@ at the wall will mostly find nothing. It will work where faces are big: an entra
 close range, or a photo taken by a guard (`people/identify`). The design deck promises "recognised by face on every camera at this property";
 that holds only for cameras that see faces large enough. Test it with the university's cameras before promising it.
 
-**Why a match only flags and never silences an alert.** The deck says enrolled people "will not trigger an automatic response". The automatic
-response (drone dispatch, Feature 10) is not built, so nothing is suppressed yet. When it is built, skipping the drone for a flagged alert is
-a one-line decision, but make it knowingly: a false match would let a stranger through, and a person climbing a wall is a safety event even if
-they are an employee.
+**The policy that was chosen (and why).** The alert is **always** created and pushed; a recognised authorized person only switches off the *automatic response*
+(the drone), which matches the deck ("will not trigger an automatic response"). A guard looks at the alarm picture and confirms (`alerts/confirm-authorized`,
+final, with history). Reason: a false match silently clearing a real intruder costs far more than one extra alert. The rules for "trusted" are strict:
+a face at least 60 px wide, the SAME enrolled and still-authorized person in at least 2 of the last frames, and **everyone** in the alarm frame cleared.
+Settings (`Face:` in `appsettings`): `AuthorizedPolicy` (`SkipDrone` default, or `LabelOnly`; anything else counts as `LabelOnly`), `MinRecognizeFaceWidth` 60,
+`MinMatchingFrames` 2, `RecognitionFrames` 5, `MatchThreshold` 0.45. **The drone/dispatch code (Feature 8/10) must check `autoResponseSkipped` before sending a drone.**
+
+**A flaw found by testing, and fixed.** With two people whose boxes overlap almost completely (a real clip), the face detector found ONE face, which lay inside both
+boxes, so it cleared both: a stranger next to or behind an authorized person could have been waved through. Now each face is given to exactly ONE person (the box it
+is inside whose head position it is nearest to). Verified on 3 real two-person clips: that clip now keeps the full response on, and a clip with two visible faces
+clears only when both people are enrolled. Known weak spot that remains: if the wall model gives the SAME person two boxes, the rule fails safe (the second box has no
+face, so the full response stays on). Person tracks come from the wall model: if it swaps two people's ids between frames, trust could be built across the wrong people.
 
 **Threshold 0.45** (`Face:MatchThreshold`), the value of your multi-face script. On your own data: different people scored 0.00 to 0.25 against each
 other (median 0.07), the same person on a new photo 0.43 to 0.86 (mostly 0.64 to 0.86). 0.45 leans strict (it would have missed your weakest photo,
@@ -64,7 +73,8 @@ other (median 0.07), the same person on a new photo 0.43 to 0.86 (mostly 0.64 to
 **Data protection.** Faces are biometric. Photos and face numbers sit in plain form in the database (like the camera passwords), only admins can
 read them, and removing a person deletes them for good. Get the people's consent, and decide who may hold the database and its backups.
 
-**Not done:** your learning folder was only read, never changed. The five `.npy` identities in it (and `ameer_master_identity.npy`, which is the same
+**Not done:** liveness (a photo held up to the camera fools face matching), encrypting photos and alarm pictures at rest, a retention period for alarm pictures,
+and testing with real cameras where faces are large. Your learning folder was only read, never changed. The five `.npy` identities in it (and `ameer_master_identity.npy`, which is the same
 person as `hamza.npy`, similarity 0.97) are not imported; enrol those people through the app with three photos each. `authorized.json` is old
 128-number data from a different model and cannot be used. Liveness (a photo of a face held to the camera fools it), tracking a face across frames, and
 the automatic-response policy are not built.

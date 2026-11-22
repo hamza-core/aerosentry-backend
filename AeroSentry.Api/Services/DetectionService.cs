@@ -29,6 +29,14 @@ public class DetectionService : IDetectionService
     }
 
     private double DefaultThreshold => _config.GetValue<double?>("Ml:Threshold") ?? 0.5;
+
+    // What happens when every person at the wall is a trusted, authorized person:
+    //   "SkipDrone" (default) : the alert is still created and pushed, but marked AutoResponseSkipped so no drone is sent;
+    //   "LabelOnly"           : the alert only names the person, and the full response stays on.
+    // Anything else counts as LabelOnly (when unsure, keep the response on).
+    private bool SkipDroneForAuthorized => string.Equals(_config["Face:AuthorizedPolicy"] ?? "SkipDrone", "SkipDrone", StringComparison.OrdinalIgnoreCase);
+    // How many pictures to look at for faces on an alarm: the alarm frame plus (this - 1) earlier ones.
+    private int RecognitionFrames => _config.GetValue<int?>("Face:RecognitionFrames") ?? 5;
     private string RtspBase => (_config["Media:RtspBase"] ?? "rtsp://localhost:8554").TrimEnd('/');
 
     public async Task<Result<DetectionStartResponse>> StartAsync(Guid adminId, Guid propertyId, Guid wallId, double? threshold)
@@ -150,15 +158,21 @@ public class DetectionService : IDetectionService
 
         var query = _db.DetectionEvents.Where(e => e.WallId == wallId);
         var total = await query.CountAsync();
+        // Project the columns: the event also holds the alarm picture, which a list must not drag along.
         var rows = await query
             .OrderByDescending(e => e.DetectedAtUtc)
             .Skip((page - 1) * pageSize)
             .Take(pageSize)
+            .Select(e => new DetectionEventResponse
+            {
+                Id = e.Id, WallId = e.WallId, CellId = e.CellId, CellLabel = e.CellLabel, Probability = e.Probability,
+                Threshold = e.Threshold, FrameNumber = e.FrameNumber, TimestampSeconds = e.TimestampSeconds, DetectedAtUtc = e.DetectedAtUtc
+            })
             .ToListAsync();
 
         return Result<PagedResponse<DetectionEventResponse>>.Ok(new PagedResponse<DetectionEventResponse>
         {
-            Items = rows.Select(ToResponse).ToList(),
+            Items = rows,
             Page = page,
             PageSize = pageSize,
             TotalCount = total
@@ -234,6 +248,11 @@ public class DetectionService : IDetectionService
         // Where is each person? Foot point = bottom-centre of the box.
         var people = ml.People.Select(p => ToPerson(p, wall.Cells)).ToList();
 
+        // Keep this picture in the wall's short history. On an alarm, faces are looked for in it and in a few earlier ones.
+        var thisFrame = new RecognitionFrame(jpeg, people.Select(p => new TrackBox(p.TrackId, p.Box)).ToList());
+        var earlierFrames = ml.AlarmRaised ? session.Earlier(RecognitionFrames - 1) : new List<RecognitionFrame>();
+        session.Remember(thisFrame);
+
         var response = new DetectionFrameResponse
         {
             FramesStreamed = ml.FramesStreamed,
@@ -259,23 +278,32 @@ public class DetectionService : IDetectionService
                 Threshold = session.Threshold,
                 FrameNumber = ml.FramesStreamed,
                 TimestampSeconds = timestampSeconds,
-                MlSessionId = session.MlSessionId
+                MlSessionId = session.MlSessionId,
+                AlarmSnapshot = jpeg   // so a guard can SEE who it is (alerts/get-snapshot)
             };
             _db.DetectionEvents.Add(detection);
 
-            // Is the person at the wall someone who is enrolled and authorized? Best effort and informational only: the alert
-            // is created either way. (Faces at a wall camera are often too small to recognise; then this is simply null.)
+            // Is everyone at the wall a trusted, authorized person? Strict rules (see IPersonService): a wide-enough face, the same
+            // person in several frames, and EVERY person cleared. Best effort: faces at a wall camera are often too small, and then
+            // nobody is recognised and the full response stays on.
             var target = intruder ?? people.OrderByDescending(p => p.Confidence).FirstOrDefault();
-            var recognized = target is null ? null : await _people.FindAuthorizedAsync(wall.PropertyId, jpeg, target.Box);
+            var recognition = target is null
+                ? new AlarmRecognition(null, false)
+                : await _people.RecognizeForAlarmAsync(wall.PropertyId, earlierFrames.Append(thisFrame).ToList(), target.TrackId);
+
+            // The alert is ALWAYS created and pushed. Recognition only names the person, and (policy SkipDrone) marks that no
+            // automatic response (drone) is to be sent. A guard then looks at the picture and confirms (alerts/confirm-authorized).
+            var skipResponse = SkipDroneForAuthorized && recognition.AllCleared && recognition.Person is not null;
 
             // Saves the event AND its alert together, then pushes the alert to the apps over SignalR.
-            var alert = await _alerts.CreateForDetectionAsync(detection, wall.PropertyId, recognized);
+            var alert = await _alerts.CreateForDetectionAsync(detection, wall.PropertyId, recognition.Person, skipResponse);
 
             response.EventId = detection.Id;
             response.CellLabel = detection.CellLabel;
             response.AlertId = alert.Id;
             response.IncidentCode = alert.IncidentCode;
             response.RecognizedPerson = alert.RecognizedPerson;
+            response.AutoResponseSkipped = alert.AutoResponseSkipped;
         }
 
         return Result<DetectionFrameResponse>.Ok(response);

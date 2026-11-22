@@ -21,8 +21,24 @@ public interface IPersonService
     // Who is in this picture? Compares every face with the enrolled people of the property.
     Task<Result<IdentifyResponse>> IdentifyAsync(Guid adminId, Guid propertyId, byte[] image);
 
-    // Used by the detection bridge when an alarm is raised: is the person at the wall an AUTHORIZED enrolled person?
-    // box = the person's box [x1, y1, x2, y2] as fractions of the picture (null = any face). Best effort: returns null when
-    // nobody matches, nobody is enrolled, or the face service is down. It never throws and never changes the alarm.
-    Task<RecognizedPersonDto?> FindAuthorizedAsync(Guid propertyId, byte[] jpeg, double[]? box);
+    // Used by the detection bridge when an alarm is raised. Looks for the faces of the people at the wall in the alarm frame and a few
+    // earlier frames, and decides who is a TRUSTED authorized person:
+    //   - a face counts only if it is wide enough (Face:MinRecognizeFaceWidth); it belongs to exactly ONE person (the box it is
+    //     inside whose head position it is nearest to), so one face can never vouch for two people;
+    //   - a person (track) is "cleared" only if ONE enrolled, still-authorized person matched on it in at least
+    //     Face:MinMatchingFrames different frames, and nobody else matched on that track;
+    //   - AllCleared is true only if EVERY person in the alarm frame is cleared (one unknown person means a full response).
+    // frames: oldest first, the alarm frame LAST. Best effort: any problem (nobody enrolled, face service down) gives
+    // "nobody recognised". It never throws and never changes the alarm.
+    Task<AlarmRecognition> RecognizeForAlarmAsync(Guid propertyId, IReadOnlyList<RecognitionFrame> frames, int targetTrackId);
 }
+
+// A person in a picture, as the wall model reports it: a track id (stable while the person stays in view) and a box
+// [x1, y1, x2, y2] as fractions of the picture.
+public record TrackBox(int TrackId, double[] Box);
+
+// One camera picture with the people the wall model found in it.
+public record RecognitionFrame(byte[] Jpeg, IReadOnlyList<TrackBox> People);
+
+// Person = the trusted authorized person for the alarm's target (null if none). AllCleared = everyone at the wall is trusted.
+public record AlarmRecognition(RecognizedPersonDto? Person, bool AllCleared);

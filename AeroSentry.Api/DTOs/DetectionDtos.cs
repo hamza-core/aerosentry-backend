@@ -53,6 +53,7 @@ public class DetectionFrameResponse
 
     // Set when the person at the wall was recognised as an authorized enrolled person (informational).
     public RecognizedPersonDto? RecognizedPerson { get; set; }
+    public bool AutoResponseSkipped { get; set; }
 
     public List<DetectedPersonDto> People { get; set; } = new();
 }

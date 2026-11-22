@@ -32,6 +32,10 @@ public class PersonService : IPersonService
     private int MinEnrollFaceWidth => _config.GetValue<int?>("Face:MinEnrollFaceWidth") ?? 100;
     // The three photos must look like one person: similarity between each pair of them.
     private double MinPhotoSimilarity => _config.GetValue<double?>("Face:MinPhotoSimilarity") ?? 0.30;
+    // On an alarm, a face smaller than this is ignored as "not a visible face" (a tiny face gives a weak, unreliable embedding).
+    private int MinRecognizeFaceWidth => _config.GetValue<int?>("Face:MinRecognizeFaceWidth") ?? 60;
+    // A person is only cleared when the same enrolled person matched in at least this many different frames.
+    private int MinMatchingFrames => _config.GetValue<int?>("Face:MinMatchingFrames") ?? 2;
     // Surveillance frames have small faces: look harder than the default 640.
     private int SurveillanceDetSize => _config.GetValue<int?>("Face:SurveillanceDetSize") ?? 960;
 
@@ -266,41 +270,103 @@ public class PersonService : IPersonService
         return Result<IdentifyResponse>.Ok(response);
     }
 
-    public async Task<RecognizedPersonDto?> FindAuthorizedAsync(Guid propertyId, byte[] jpeg, double[]? box)
+    public async Task<AlarmRecognition> RecognizeForAlarmAsync(Guid propertyId, IReadOnlyList<RecognitionFrame> frames, int targetTrackId)
     {
+        var nobody = new AlarmRecognition(null, false);
         try
         {
             var gallery = await LoadGalleryAsync(propertyId, onlyAuthorized: true);
-            if (gallery.Count == 0)
-                return null;   // nobody enrolled: no need to look at the picture at all
+            if (gallery.Count == 0 || frames.Count == 0)
+                return nobody;   // nobody enrolled (or still authorized): no need to look at the pictures at all
 
-            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(5));
-            var analysis = await _faces.AnalyzeAsync(jpeg, SurveillanceDetSize, timeout.Token);
+            // For every person (track), every frame where a wide-enough face inside the person's box matched an enrolled person.
+            var matches = new Dictionary<int, List<(int Frame, GalleryEntry Entry, double Score)>>();
+            using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(8));
 
-            RecognizedPersonDto? result = null;
-            foreach (var face in analysis.Faces)
+            for (var f = 0; f < frames.Count; f++)
             {
-                // Only the face that belongs to the person the alarm is about: its centre must lie inside that person's box.
-                if (box is { Length: 4 } && analysis.ImageWidth > 0 && analysis.ImageHeight > 0)
-                {
-                    var cx = (face.Box[0] + face.Box[2]) / 2.0 / analysis.ImageWidth;
-                    var cy = (face.Box[1] + face.Box[3]) / 2.0 / analysis.ImageHeight;
-                    if (cx < box[0] || cx > box[2] || cy < box[1] || cy > box[3])
-                        continue;
-                }
+                if (frames[f].People.Count == 0)
+                    continue;
 
-                var (best, score) = BestMatch(gallery, face.Embedding);
-                if (best is not null && score >= MatchThreshold && (result is null || score > result.Score))
-                    result = new RecognizedPersonDto { Id = best.Person.Id, Name = best.Person.Name, Category = best.Person.Category, Score = Math.Round(score, 4) };
+                var analysis = await _faces.AnalyzeAsync(frames[f].Jpeg, SurveillanceDetSize, timeout.Token);
+
+                // Every face belongs to exactly ONE person, so one face can never vouch for two people.
+                foreach (var (face, trackId) in AssignFacesToPeople(analysis, frames[f].People))
+                {
+                    var (best, score) = BestMatch(gallery, face.Embedding);
+                    if (best is null || score < MatchThreshold)
+                        continue;
+
+                    if (!matches.TryGetValue(trackId, out var list))
+                        matches[trackId] = list = new();
+                    list.Add((f, best, score));
+                }
             }
-            return result;
+
+            // Cleared = ONE enrolled person matched in enough different frames, and nobody else matched on that track.
+            var cleared = new Dictionary<int, RecognizedPersonDto>();
+            foreach (var (track, list) in matches)
+            {
+                var groups = list.GroupBy(m => m.Entry.Person.Id).ToList();
+                if (groups.Count != 1)
+                    continue;   // two different people on one track: do not trust either
+
+                var group = groups[0];
+                if (group.Select(m => m.Frame).Distinct().Count() < MinMatchingFrames)
+                    continue;
+
+                var person = group.First().Entry.Person;
+                cleared[track] = new RecognizedPersonDto
+                {
+                    Id = person.Id, Name = person.Name, Category = person.Category, Score = Math.Round(group.Average(m => m.Score), 4)
+                };
+            }
+
+            // Everyone in the alarm frame (the last one) must be cleared, otherwise the full response stays on.
+            var alarmFrame = frames[^1];
+            var allCleared = alarmFrame.People.Count > 0 && alarmFrame.People.All(p => cleared.ContainsKey(p.TrackId));
+            return new AlarmRecognition(cleared.GetValueOrDefault(targetTrackId), allCleared);
         }
         catch (Exception ex)
         {
             // Face recognition is an extra. It must never stop an alarm from being raised.
             _logger.LogWarning(ex, "Face recognition for an alarm was skipped");
-            return null;
+            return nobody;
         }
+    }
+
+    // Gives every wide-enough face to exactly one person. Person boxes can overlap (people close together, one in front of the
+    // other), and then the same face lies inside several boxes. If it counted for all of them, ONE authorized person's face
+    // could clear a stranger standing next to or behind them. So the face goes to the one person it is nearest to: the box that
+    // contains the face's centre and whose head position (top middle) is closest. A person left without a face stays unknown.
+    private List<(FaceInfo Face, int TrackId)> AssignFacesToPeople(FaceAnalysis analysis, IReadOnlyList<TrackBox> people)
+    {
+        var owners = new List<(FaceInfo, int)>();
+        if (analysis.ImageWidth <= 0 || analysis.ImageHeight <= 0)
+            return owners;
+
+        foreach (var face in analysis.Faces.Where(f => f.Width >= MinRecognizeFaceWidth))
+        {
+            var cx = (face.Box[0] + face.Box[2]) / 2.0 / analysis.ImageWidth;
+            var cy = (face.Box[1] + face.Box[3]) / 2.0 / analysis.ImageHeight;
+
+            var owner = people
+                .Where(p => p.Box.Length == 4 && cx >= p.Box[0] && cx <= p.Box[2] && cy >= p.Box[1] && cy <= p.Box[3])
+                .OrderBy(p =>
+                {
+                    var width = Math.Max(p.Box[2] - p.Box[0], 1e-6);
+                    var height = Math.Max(p.Box[3] - p.Box[1], 1e-6);
+                    var headX = (p.Box[0] + p.Box[2]) / 2;
+                    var headY = p.Box[1] + 0.12 * height;
+                    return Math.Abs(cx - headX) / width + Math.Abs(cy - headY) / height;
+                })
+                .ThenBy(p => p.TrackId)   // an exact tie always resolves the same way
+                .FirstOrDefault();
+
+            if (owner is not null)
+                owners.Add((face, owner.TrackId));
+        }
+        return owners;
     }
 
     // ---- helpers ----

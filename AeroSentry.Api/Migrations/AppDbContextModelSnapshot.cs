@@ -16,7 +16,7 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
     // If you encounter a merge conflict in the line below, it means you need to
     // discard one of the migration branches and recreate its migrations on top of
     // the other branch. See https://aka.ms/efcore-docs-migrations-conflicts for more info.
-    public override string LastMigrationId => "20261122123837_AddAuthorizedPeople";
+    public override string LastMigrationId => "20261122132134_AddAlertAuthorizedHandling";
 
     protected override void BuildModel(ModelBuilder modelBuilder)
     {
@@ -32,6 +32,9 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                 b.Property<Guid>("Id")
                     .ValueGeneratedOnAdd()
                     .HasColumnType("uniqueidentifier");
+
+                b.Property<bool>("AutoResponseSkipped")
+                    .HasColumnType("bit");
 
                 b.Property<Guid?>("CellId")
                     .HasColumnType("uniqueidentifier");
@@ -252,6 +255,9 @@ partial class AppDbContextModelSnapshot : ModelSnapshot
                 b.Property<Guid>("Id")
                     .ValueGeneratedOnAdd()
                     .HasColumnType("uniqueidentifier");
+
+                b.Property<byte[]>("AlarmSnapshot")
+                    .HasColumnType("varbinary(max)");
 
                 b.Property<Guid?>("CellId")
                     .HasColumnType("uniqueidentifier");

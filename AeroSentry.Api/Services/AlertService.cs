@@ -18,7 +18,7 @@ public class AlertService : IAlertService
         _logger = logger;
     }
 
-    public async Task<AlertResponse> CreateForDetectionAsync(DetectionEvent detection, Guid propertyId, RecognizedPersonDto? recognized = null)
+    public async Task<AlertResponse> CreateForDetectionAsync(DetectionEvent detection, Guid propertyId, RecognizedPersonDto? recognized = null, bool autoResponseSkipped = false)
     {
         var alert = new Alert
         {
@@ -31,7 +31,8 @@ public class AlertService : IAlertService
             RecognizedPersonId = recognized?.Id,
             RecognizedPersonName = recognized?.Name,
             RecognizedPersonCategory = recognized?.Category,
-            RecognitionScore = recognized?.Score
+            RecognitionScore = recognized?.Score,
+            AutoResponseSkipped = autoResponseSkipped
         };
 
         _db.Alerts.Add(alert);
@@ -185,6 +186,23 @@ public class AlertService : IAlertService
             : Result<AlertResponse>.Ok(ToResponse(alert));
     }
 
+    public async Task<Result<PhotoUpload>> GetSnapshotAsync(Guid userId, string role, Guid alertId)
+    {
+        var visible = _db.VisibleProperties(userId, role).Select(p => p.Id);
+
+        // Only this one column is read (the picture is big), and only for an alert the caller may see.
+        var found = await _db.Alerts
+            .Where(a => a.Id == alertId && visible.Contains(a.PropertyId))
+            .Select(a => new { Snapshot = a.DetectionEvent.AlarmSnapshot })
+            .FirstOrDefaultAsync();
+
+        if (found is null)
+            return Result<PhotoUpload>.NotFound("Alert not found");
+        if (found.Snapshot is null)
+            return Result<PhotoUpload>.NotFound("This alert has no picture");
+        return Result<PhotoUpload>.Ok(new PhotoUpload(found.Snapshot, "image/jpeg"));
+    }
+
     // ---- helpers ----
 
     private async Task<AlertResponse> LoadResponseAsync(Guid alertId)
@@ -219,6 +237,7 @@ public class AlertService : IAlertService
             Category = a.RecognizedPersonCategory ?? "",
             Score = a.RecognitionScore ?? 0
         },
+        AutoResponseSkipped = a.AutoResponseSkipped,
         DetectionEventId = a.DetectionEventId,
         CreatedAtUtc = a.CreatedAtUtc
     };
