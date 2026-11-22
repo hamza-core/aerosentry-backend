@@ -61,10 +61,10 @@ decimals), alarms on exactly the same frames, same decisions, same people and bo
 `extract_every_5_frames.py` the line `DEVICE = "mps" if ... else "cpu"` should be `"cpu"`. The model files and all logic stay the same.
 Real phone (30 fps) measured against the CPU copy: analysed at 4.5 to 5.0 frames/s at about 95 ms per frame, instead of 1.2 to 3.1.
 
-**Why it is not done.** The ML service is frozen and approved by the supervisor. Options: (1) keep the original and accept the
-slower analysis (the worker paces itself and warns); (2) make a **copy** of the folder (for example `standalone_every_5_frames_cpu`)
-with those two lines changed and run that one; (3) change the approved folder after telling the supervisor. The throwaway copy used
-for the measurements is in the session's scratch folder and can be put into your project folder on request.
+**What was done.** The ML service is frozen and approved by the supervisor, so the original (GPU) folder was NOT changed. A **copy** with those two lines
+changed now sits next to it: `/Users/ab/FINAL FYP AI MODEL/standalone_every_5_frames_cpu` (see its `CPU_VERSION.md`; the model files are byte-identical).
+`ml-service/start-ml.sh cpu|gpu|stop|status` switches between them (one at a time, both use port 8010). Which one the demo uses, and whether the
+supervisor must be told about the CPU copy, is your decision.
 Not measured: other Macs, a machine with an NVIDIA GPU (the code only knows `mps` and `cpu`), or two or more walls at once.
 
 ## Tested with a real IP Webcam phone
