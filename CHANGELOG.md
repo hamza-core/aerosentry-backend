@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Added
+- Optional `note` (up to 500 characters) on a property: create, update, get and list. New nullable column `Properties.Note` (migration `AddPropertyNotes`).
+
 ### Removed
 - The leftover ASP.NET template `WeatherForecast` controller and model. It was a public endpoint (`/WeatherForecast`) that returned random sample data and nothing used it.
 
