@@ -3,6 +3,7 @@
 ## Unreleased
 
 ### Added
+- Optional auto MediaMTX config sync: when `Media:MtxManageConfig=true`, backend regenerates `media/mediamtx.yml` from camera records on camera create/update/delete and startup (`IMediaMtxConfigService`). Default remains off.
 - Optional `note` (up to 500 characters) on a property: create, update, get and list. New nullable column `Properties.Note` (migration `AddPropertyNotes`).
 
 - `properties/list?search=text`: keeps properties whose name contains the text (case ignored); admins also match on the address, guards only on the name. Filtering and sorting run in SQL Server.

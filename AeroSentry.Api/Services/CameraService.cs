@@ -14,12 +14,16 @@ public class CameraService : ICameraService
     private readonly AppDbContext _db;
     private readonly IConfiguration _config;
     private readonly ICameraSnapshotClient _snapshots;
+    private readonly IMediaMtxConfigService _mediaMtx;
+    private readonly ILogger<CameraService> _logger;
 
-    public CameraService(AppDbContext db, IConfiguration config, ICameraSnapshotClient snapshots)
+    public CameraService(AppDbContext db, IConfiguration config, ICameraSnapshotClient snapshots, IMediaMtxConfigService mediaMtx, ILogger<CameraService> logger)
     {
         _db = db;
         _config = config;
         _snapshots = snapshots;
+        _mediaMtx = mediaMtx;
+        _logger = logger;
     }
 
     public async Task<List<CameraResponse>?> ListAsync(Guid userId, string role, Guid propertyId)
@@ -59,6 +63,8 @@ public class CameraService : ICameraService
         _db.Cameras.Add(camera);
         await _db.SaveChangesAsync();
 
+        await SyncMediaMtxAsync(() => _mediaMtx.SyncCameraAsync(camera));
+
         return new CameraResult { Status = CameraStatus.Success, Camera = ToResponse(camera) };
     }
 
@@ -78,6 +84,8 @@ public class CameraService : ICameraService
         Apply(camera, request);
         await _db.SaveChangesAsync();
 
+        await SyncMediaMtxAsync(() => _mediaMtx.SyncCameraAsync(camera));
+
         return new CameraResult { Status = CameraStatus.Success, Camera = ToResponse(camera) };
     }
 
@@ -95,6 +103,9 @@ public class CameraService : ICameraService
 
         _db.Cameras.Remove(camera);
         await _db.SaveChangesAsync();
+
+        await SyncMediaMtxAsync(() => _mediaMtx.RemoveCameraAsync(id));
+
         return Result<bool>.Ok(true);
     }
 
@@ -200,4 +211,17 @@ public class CameraService : ICameraService
         IsActive = c.IsActive,
         CreatedAtUtc = c.CreatedAtUtc
     };
+
+    private async Task SyncMediaMtxAsync(Func<Task> sync)
+    {
+        try
+        {
+            await sync();
+        }
+        catch (Exception ex)
+        {
+            // Best effort: camera DB record is already saved. Config can be repaired by SyncAll.
+            _logger.LogWarning(ex, "Failed to sync MediaMTX config for camera change");
+        }
+    }
 }

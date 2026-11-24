@@ -21,6 +21,7 @@ tested (their RTSP paths differ by brand), so follow the steps and use the probe
 4. **Add a block to `media/mediamtx.yml`** named `cam-<id>` (template: `media/mediamtx.example.yml`). MediaMTX reloads the file by itself.
    Keep `rtspTransport: tcp`. Write special characters in the password percent-encoded (`@` = `%40`, `:` = `%3A`, `/` = `%2F`,
    space = `%20`); this encoding was checked with OpenCV but not with MediaMTX.
+   **Optional auto mode:** set `Media:MtxManageConfig=true` and `Media:MtxConfigPath` in backend config; then camera create/update/delete syncs `mediamtx.yml` automatically.
 5. **Check the picture:** open `http://<server>:8888/cam-<id>/` in a browser.
 6. **Annotate the wall.** `cameras/get-snapshot` only works for IP Webcam phones. For RTSP cameras the app captures a frame from the playback
    stream, the admin taps the 4 points, and the app sends them with the picture's size to `walls/save-annotation`.

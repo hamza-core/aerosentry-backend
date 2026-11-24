@@ -11,9 +11,23 @@ The backend already hands out these addresses: `playbackUrl` in a camera is the 
 MediaMTX is a single offline executable, no internet needed.
 
 ## Add a camera
+
+### Manual
 1. Add the camera in the app (or `cameras/create`) and note its `id`.
 2. In `media/mediamtx.yml` add a block named **`cam-<id>`** (see `mediamtx.example.yml`). MediaMTX reloads the file by itself.
 3. Check it: open `http://localhost:8888/cam-<id>/` in a browser (MediaMTX has a built-in player page).
+
+### Automatic (backend-managed)
+Set in `AeroSentry.Api/appsettings.Development.json` (or env vars):
+
+```json
+"Media": {
+  "MtxManageConfig": true,
+  "MtxConfigPath": "../media/mediamtx.yml"
+}
+```
+
+When enabled, backend regenerates `mediamtx.yml` from camera records on camera create/update/delete (and on startup). The file becomes backend-managed; manual edits may be overwritten. Keep `MtxManageConfig` false if you want to manage the file by hand.
 
 ## Rules learned by testing with a real IP Webcam phone
 - **`rtspTransport: tcp` is required** for Wi-Fi cameras. With the default UDP, packets were lost, keyframes broke and the HLS playlist never

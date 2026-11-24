@@ -40,6 +40,7 @@ builder.Services.AddScoped<AuthService>();
 builder.Services.AddScoped<GuardService>();
 builder.Services.AddScoped<PropertyService>();
 builder.Services.AddScoped<ICameraService, CameraService>();
+builder.Services.AddScoped<IMediaMtxConfigService, MediaMtxConfigService>();
 builder.Services.AddScoped<ILaserGridService, LaserGridService>();
 builder.Services.AddScoped<IWallService, WallService>();
 builder.Services.AddScoped<IWallCellService, WallCellService>();
@@ -149,5 +150,20 @@ app.MapHub<AlertsHub>("/hubs/alerts", options =>
     // When the token of an open connection expires, close the connection (the app logs in again).
     options.CloseOnAuthenticationExpiration = true;
 });
+
+// Best effort: if MediaMTX auto-config is enabled, regenerate the managed config from DB cameras.
+using (var scope = app.Services.CreateScope())
+{
+    var mtx = scope.ServiceProvider.GetRequiredService<IMediaMtxConfigService>();
+    var logger = scope.ServiceProvider.GetRequiredService<ILoggerFactory>().CreateLogger("Startup");
+    try
+    {
+        await mtx.SyncAllAsync();
+    }
+    catch (Exception ex)
+    {
+        logger.LogWarning(ex, "Could not sync MediaMTX config on startup");
+    }
+}
 
 app.Run();
