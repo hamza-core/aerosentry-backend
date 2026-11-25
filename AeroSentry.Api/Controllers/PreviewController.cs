@@ -27,11 +27,15 @@ public class PreviewController : ApiControllerBase
         if (!await _preview.CanViewAsync(CallerId, CallerRole, propertyId, wallId))
             return Problem(statusCode: 404, title: "Wall not found");
 
+        // A picture older than StaleAfter is from a worker that has stopped: it must not be shown as if it were live.
+        bool HasFreshPicture() =>
+            _preview.Latest(wallId) is { } latest && DateTime.UtcNow - latest.AtUtc < StaleAfter;
+
         // Wait a moment for the first picture.
         var giveUp = DateTime.UtcNow + FirstPictureWait;
-        while (_preview.Latest(wallId) is null && DateTime.UtcNow < giveUp && !cancel.IsCancellationRequested)
+        while (!HasFreshPicture() && DateTime.UtcNow < giveUp && !cancel.IsCancellationRequested)
             await Task.Delay(100, CancellationToken.None);
-        if (_preview.Latest(wallId) is null)
+        if (!HasFreshPicture())
             return Problem(statusCode: 404, title: "No live picture: the wall is not being watched, or the ingest worker is not running");
 
         Response.ContentType = "multipart/x-mixed-replace; boundary=frame";
@@ -44,7 +48,7 @@ public class PreviewController : ApiControllerBase
             while (!cancel.IsCancellationRequested)
             {
                 var frame = _preview.Latest(wallId);
-                if (frame is not null && frame.Sequence != lastSent)
+                if (frame is not null && frame.Sequence != lastSent && DateTime.UtcNow - frame.AtUtc < StaleAfter)
                 {
                     lastSent = frame.Sequence;
                     lastNew = DateTime.UtcNow;
