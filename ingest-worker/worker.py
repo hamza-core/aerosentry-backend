@@ -62,6 +62,8 @@ class StreamWatcher(threading.Thread):
         self.stop_event = threading.Event()
         self.finished = False          # a video FILE that reached its end (not restarted unless --loop)
         self._busy = threading.Lock()  # held while one frame is being sent
+        self._preview_busy = threading.Lock()   # held while one preview picture is being uploaded
+        self._preview_error_at = 0.0   # when a failed preview upload was last reported (do not flood the log)
         self.sent = 0
         self.dropped = 0
         self.alarms = 0
@@ -129,7 +131,7 @@ class StreamWatcher(threading.Thread):
                     if self._busy.acquire(blocking=False):
                         jpeg = cv2.imencode(".jpg", frame)[1].tobytes()
                         timestamp = t
-                        threading.Thread(target=self._send, args=(jpeg, frame_number, timestamp), daemon=True).start()
+                        threading.Thread(target=self._send, args=(jpeg, frame_number, timestamp, frame), daemon=True).start()
                     else:
                         self.dropped += 1
 
@@ -175,7 +177,7 @@ class StreamWatcher(threading.Thread):
                 log.warning("[%s] the camera sends %dx%d but the wall was annotated on %dx%d: the wall lines will not line up. "
                             "Annotate the wall again on this camera's picture.", self.name_, width, height, annotated_w, annotated_h)
 
-    def _send(self, jpeg, frame_number, timestamp):
+    def _send(self, jpeg, frame_number, timestamp, frame=None):
         began = time.monotonic()
         try:
             response = requests.post(
@@ -190,6 +192,9 @@ class StreamWatcher(threading.Thread):
             if response.status_code == 200:
                 self.sent += 1
                 result = response.json()
+                if frame is not None and self.args.preview:
+                    # Draw and upload on another thread, so the preview never slows the analysis down.
+                    threading.Thread(target=self._publish_preview, args=(frame, result), daemon=True).start()
                 if result.get("alarmRaised"):
                     self.alarms += 1
                     log.warning("[%s] ALARM  probability=%.2f  cell=%s  %s", self.name_, result["probability"],
@@ -202,6 +207,62 @@ class StreamWatcher(threading.Thread):
             log.error("[%s] backend not reachable: %s", self.name_, exc)
         finally:
             self._busy.release()
+
+
+    # --- the live preview: the camera picture with the people the model found drawn on it --------------------------
+    def _draw(self, frame, result):
+        """The picture the apps show: a box round every person (orange; RED while the climbing alarm is on), with the
+        model's confidence and the wall cell the person's feet are in. Sent about 640 px wide to keep it small."""
+        height, width = frame.shape[:2]
+        scale = min(1.0, 640.0 / width)
+        picture = cv2.resize(frame, (int(width * scale), int(height * scale))) if scale < 1.0 else frame.copy()
+        h, w = picture.shape[:2]
+        alarm = bool(result.get("alarmActive"))
+        colour = (0, 0, 255) if alarm else (0, 165, 255)          # BGR: red / orange
+
+        for person in result.get("people") or []:
+            box = person.get("box") or []
+            if len(box) != 4:
+                continue
+            x1, y1, x2, y2 = int(box[0] * w), int(box[1] * h), int(box[2] * w), int(box[3] * h)
+            cv2.rectangle(picture, (x1, y1), (x2, y2), colour, 3 if alarm else 2)
+            cell = person.get("cellLabel")
+            label = "Person %d%%" % round((person.get("confidence") or 0) * 100) + (" - " + cell if cell else "")
+            (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
+            top = max(y1 - th - 8, 0)
+            cv2.rectangle(picture, (x1, top), (x1 + tw + 8, top + th + 8), colour, -1)
+            cv2.putText(picture, label, (x1 + 4, top + th + 2), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1, cv2.LINE_AA)
+            # The foot point: the spot the backend uses to decide which cell the person is in.
+            cv2.circle(picture, (int(person.get("footX", 0) * w), int(person.get("footY", 0) * h)), 4, colour, -1)
+
+        if alarm:
+            # Only the word: the model's reading changes from frame to frame and can dip while the alarm is still on,
+            # so a number here would contradict the percentage of the alert itself.
+            text = "ALARM"
+            (tw, th), _ = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)
+            cv2.rectangle(picture, (0, 0), (tw + 20, th + 18), (0, 0, 255), -1)
+            cv2.putText(picture, text, (10, th + 8), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2, cv2.LINE_AA)
+        return cv2.imencode(".jpg", picture, [cv2.IMWRITE_JPEG_QUALITY, 70])[1].tobytes()
+
+    def _publish_preview(self, frame, result):
+        # One upload at a time: if the last one is still going, this picture is simply skipped.
+        if not self._preview_busy.acquire(blocking=False):
+            return
+        try:
+            requests.post(
+                self.args.backend + "/api/v1/worker/post-preview",
+                params={"wallId": self.job["wallId"]},
+                files={"frame": ("preview.jpg", self._draw(frame, result), "image/jpeg")},
+                headers={"X-Worker-Key": self.args.key},
+                timeout=3,
+            ).raise_for_status()
+        except requests.RequestException as exc:
+            now = time.monotonic()
+            if now - self._preview_error_at > 60:          # report at most once a minute
+                self._preview_error_at = now
+                log.warning("[%s] the live preview could not be sent: %s (detection itself is not affected)", self.name_, exc)
+        finally:
+            self._preview_busy.release()
 
 
 # ---------------------------------------------------------------------------
@@ -237,6 +298,8 @@ def main():
     parser.add_argument("--override", action="append", default=[], metavar="WALLID=SOURCE",
                         help="for tests: read this video file or URL instead, for one wall (repeatable)")
     parser.add_argument("--loop", action="store_true", help="restart a video file when it ends")
+    parser.add_argument("--no-preview", dest="preview", action="store_false",
+                        help="do not send the live preview picture (boxes drawn on the camera picture) to the backend")
     parser.add_argument("--run-seconds", type=float, default=0, help="for tests: exit after this many seconds")
     args = parser.parse_args()
 

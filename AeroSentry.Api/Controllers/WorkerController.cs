@@ -17,11 +17,13 @@ namespace AeroSentry.Api.Controllers;
 public class WorkerController : ApiControllerBase
 {
     private readonly IDetectionService _detection;
+    private readonly IPreviewService _preview;
     private readonly IConfiguration _config;
 
-    public WorkerController(IDetectionService detection, IConfiguration config)
+    public WorkerController(IDetectionService detection, IPreviewService preview, IConfiguration config)
     {
         _detection = detection;
+        _preview = preview;
         _config = config;
     }
 
@@ -48,6 +50,24 @@ public class WorkerController : ApiControllerBase
 
         return FromResult(await _detection.WorkerFrameAsync(
             wallId, buffer.ToArray(), request.FrameIndex, request.TimestampSeconds));
+    }
+
+    // POST /api/v1/worker/post-preview?wallId=...
+    // multipart/form-data: frame (a JPEG file): the camera picture with the people the model found drawn on it.
+    // The apps watch it at detection/preview. 204 = stored, 400 = not a JPEG or too big.
+    [HttpPost("post-preview")]
+    [RequestSizeLimit(3 * 1024 * 1024)]
+    public async Task<IActionResult> PostPreview(Guid wallId, [FromForm] DetectionFrameRequest request)
+    {
+        if (!KeyIsValid())
+            return Problem(statusCode: 401, title: "Missing or wrong worker key");
+
+        using var buffer = new MemoryStream();
+        await request.Frame.CopyToAsync(buffer);
+
+        return _preview.Publish(wallId, buffer.ToArray())
+            ? NoContent()
+            : Problem(statusCode: 400, title: "The preview must be a JPEG picture of at most 2 MB");
     }
 
     private bool KeyIsValid()

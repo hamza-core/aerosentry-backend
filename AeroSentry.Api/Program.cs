@@ -66,6 +66,8 @@ builder.Services.AddHttpClient<IFaceClient, FaceClient>(client =>
 builder.Services.AddScoped<IPersonService, PersonService>();
 builder.Services.AddSingleton<DetectionSessions>();   // one shared wall -> ML session map
 builder.Services.AddScoped<IDetectionService, DetectionService>();
+builder.Services.AddSingleton<PreviewStore>();   // the latest live-preview picture of each wall, in memory
+builder.Services.AddScoped<IPreviewService, PreviewService>();
 
 // Alerts: stored in the database, pushed live over SignalR (hub at /hubs/alerts).
 builder.Services.AddScoped<IAlertService, AlertService>();

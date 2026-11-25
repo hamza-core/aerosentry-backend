@@ -37,6 +37,7 @@ Wi-Fi in testing. Set `OPENCV_FFMPEG_CAPTURE_OPTIONS` yourself to change that. T
 | `--backend URL` | default `http://localhost:5078` (or env `BACKEND_URL`) |
 | `--override WALLID=FILE_OR_URL` | test with a video file instead of a camera |
 | `--loop` | restart a test video file when it ends |
+| `--no-preview` | do not send the live preview picture (the camera picture with a box round each person) to the backend |
 
 ## Frame rate: how it works for any camera
 - **Sampled by time, not by counting frames.** The worker keeps about **5 frames per second of real time**, whether the
@@ -52,3 +53,10 @@ Wi-Fi in testing. Set `OPENCV_FFMPEG_CAPTURE_OPTIONS` yourself to change that. T
 - **More walls = less speed each.** One ML process serves every wall, so the per-wall rate drops as walls are added.
 - If a frame is still being analysed when the next is due, the new one is skipped (counted as `dropped`) instead of queuing.
 - The first report line of a run includes the start-up phase (the first frames are fast); read the later lines.
+
+## The live preview
+For every frame it analyses, the worker also draws the people on a copy of the picture (a box round each person: orange, **red**
+while the climbing alarm is on, with the model's confidence and the wall cell) and uploads it, about 640 px wide, to
+`POST /api/v1/worker/post-preview`. The apps watch it at `GET /api/v1/detection/preview`. It runs on its own thread and is simply
+skipped when the previous upload is still going, so it never slows the detection down. If the upload fails, the detection goes on
+and the worker says so once a minute.

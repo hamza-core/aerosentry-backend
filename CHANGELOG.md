@@ -3,6 +3,9 @@
 ## Unreleased
 
 ### Added
+- **Live preview with boxes.** The ingest worker draws a box round every person the model finds on the camera picture (red during the alarm) and sends it to the backend (`worker/post-preview`); apps watch it at `detection/preview` as a picture stream. Only the latest picture per wall is kept in memory. The stream ends by itself when the worker stops. `--no-preview` turns it off in the worker.
+
+### Added
 - Optional `note` (up to 500 characters) on a property: create, update, get and list. New nullable column `Properties.Note` (migration `AddPropertyNotes`).
 
 - `properties/list?search=text`: keeps properties whose name contains the text (case ignored); admins also match on the address, guards only on the name. Filtering and sorting run in SQL Server.

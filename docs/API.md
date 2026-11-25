@@ -110,6 +110,21 @@ Route body (a list, in drone visiting order): `[{ "row": 0, "col": 0 }, ...]`.
 `detection/start` switches a wall **on** (saved in the database, so it survives a backend restart; the wall then shows
 `detectionEnabled: true`) and `detection/stop` switches it **off**. The ingest worker watches every wall that is switched on.
 
+## Live preview (the wall with the people marked)
+The ingest worker draws a box round every person the model finds (orange; **red** while the climbing alarm is on, with the
+confidence and the cell) on the camera picture and sends it to the backend. The apps show it as a picture stream. Only the
+**latest** picture of each wall is kept, in memory (nothing on disk or in the database).
+| Function | Method and path | Who |
+|---|---|---|
+| Watch a wall's live preview (a never-ending `multipart/x-mixed-replace` JPEG stream, like an IP camera's MJPEG) | `GET detection/preview?propertyId=&wallId=` | any who can see the property |
+| *(worker only)* Send the picture with the boxes drawn on it (multipart `frame`, a JPEG up to 2 MB) | `POST worker/post-preview?wallId=` + `X-Worker-Key` | worker |
+
+`detection/preview`: **404** when the wall is not yours, **or** when no picture comes in within 5 seconds (the wall is not being watched,
+or the ingest worker is not running). The stream **ends by itself** when the worker stops for 6 seconds, so the app notices and
+reconnects instead of showing a frozen picture. Send the login token as a normal `Authorization: Bearer` header.
+It is about as fast as the model: roughly 4 pictures per second on the CPU model, 1 to 2 on the GPU one.
+`worker/post-preview`: 204 stored, 400 not a JPEG or too big, 401 wrong key.
+
 ## Alerts (the alerts log)
 Every alarm the detection bridge stores becomes an alert automatically (one alarm = one alert).
 | Function | Method and path | Who |
