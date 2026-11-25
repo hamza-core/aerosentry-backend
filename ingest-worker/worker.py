@@ -4,23 +4,24 @@ AeroSentry ingest worker.
 What it does, in one paragraph:
     Every few seconds it asks the backend "which walls must I watch?" (GET worker/get-jobs).
     For each wall it opens the camera stream (via the media server, or the camera directly), reads
-    the video and keeps frames at a steady rate in REAL TIME (6 per second by default, see below), and
+    the video and keeps every 5th frame in REAL TIME (see below), and
     posts each kept frame to the backend (POST worker/send-frame). The backend calls the ML service,
     works out the wall cell and stores the alarm. This program never talks to the ML service itself.
 
-Why 5 frames per second, whatever the camera's frame rate:
-    The model was trained on one frame in every 5 of the dataset's videos. Measured on the training set
-    (wall-intrusion-detection/dataset/train, 703 videos): 65% are 25 fps, 20% are 30 fps, 14% are 24 fps, so that is
-    5.0 samples per second of real time for the typical clip (4.8 to 6.0 for the others, 5.2 on average).
-    A fixed "every 5th frame" gives a 15 fps phone only 3 per second and a 60 fps camera 12. So frames are chosen by
-    TIME, and any camera gives about 5 per second. A camera slower than 5 fps simply has every frame used.
+Which frames are analysed: every 5th frame, as in training.
+    The model was trained on frames 0, 5, 10, ... of each video (extract_every_5_frames.py: np.arange(0, total, 5)), and the
+    ML service is configured the same way (frame_stride = 5). So by default the worker keeps frame 0, 5, 10, ... of the
+    stream: the same frames the model was trained on, whatever the camera's frame rate. The consequence: a 25 fps camera
+    gives 5 analysed frames per second (what most training videos gave), a 30 fps camera 6, a 15 fps phone only 3, a 60 fps
+    camera 12. If a camera's rate is far from 25 fps and you want about 5 per second anyway, use --sample-rate 5: it chooses
+    frames by TIME instead (see the options).
 
 What the ML service can really do:
     In live mode it re-runs its whole trailing window (up to 60 frames) through the bidirectional LSTM on every frame.
     Measured on the development Mac: about 5.6 frames/s at first, falling to about 2-2.5 frames/s once the window is full.
-    So the worker PACES itself: it measures how long a frame takes (backend + ML) and spaces the frames evenly at the
-    fastest rate that can be kept up, never above the sample rate. It logs a warning when that is below the trained rate,
-    because the model then sees frames further apart than in training.
+    So the worker PACES itself: it measures how long a frame takes (backend + ML) and, when that is longer than the gap
+    between two every-5th frames, widens the gap (every 6th, 7th, ... frame) so analyses never pile up. It logs a warning
+    when it has to, because the model then sees frames further apart than in training.
 
 Run (from this folder, in the environment that has opencv and requests):
     WORKER_KEY=<same value as Worker:ApiKey in appsettings.json> python worker.py
@@ -30,6 +31,7 @@ Everything is local-network only. No internet is needed.
 
 import argparse
 import logging
+import math
 import os
 import sys
 import threading
@@ -49,8 +51,50 @@ log = logging.getLogger("worker")
 PACE_MARGIN = 1.25
 
 
+class FrameSampler:
+    """Decides which frames of a stream are analysed. No video, no network: only numbers, so it can be tested alone.
+
+    Count mode (the default): every `every`-th frame, indexes 0, every, 2*every, ... exactly like training. When analysing
+    a frame (backend + ML) takes longer than the gap between two such frames, the gap is widened to the next whole number
+    of frames that can be kept up, so analyses never pile up.
+
+    Time mode (rate given): about `rate` frames per second of real time, whatever the camera's frame rate (the old way).
+    """
+
+    def __init__(self, every=5, rate=None):
+        self.every = every
+        self.rate = rate
+        self._next_index = 0           # count mode: the index of the next frame to keep
+        self._next_time = None         # time mode: the second at which the next frame must be kept
+
+    def stride(self, camera_fps, round_trip):
+        """Frames between two analysed frames right now."""
+        stride = self.every
+        if round_trip and camera_fps:
+            stride = max(stride, math.ceil(PACE_MARGIN * round_trip * camera_fps))
+        return stride
+
+    def keep(self, index, t, camera_fps, round_trip):
+        """index: 0 for the first frame of the stream. t: seconds since the stream started."""
+        if self.rate is not None:
+            if self._next_time is None:
+                self._next_time = t
+            if t < self._next_time:
+                return False
+            interval = max(1.0 / self.rate, PACE_MARGIN * (round_trip or 0.0))
+            self._next_time += interval
+            if t - self._next_time > 2 * interval:
+                self._next_time = t + interval        # the stream stalled for a while: do not burst to catch up
+            return True
+
+        if index < self._next_index:
+            return False
+        self._next_index = index + self.stride(camera_fps, round_trip)
+        return True
+
+
 # ---------------------------------------------------------------------------
-# One thread per wall: read the stream, keep frames at the sample rate, send them
+# One thread per wall: read the stream, keep every 5th frame, send them
 # ---------------------------------------------------------------------------
 class StreamWatcher(threading.Thread):
     def __init__(self, job, source, args):
@@ -68,13 +112,13 @@ class StreamWatcher(threading.Thread):
         self.dropped = 0
         self.alarms = 0
         self.round_trip = None         # smoothed seconds per frame (backend + ML), measured on every send
+        self._first_reply = True       # the first answer of a stream is not counted: see _send
 
     def stop(self):
         self.stop_event.set()
 
     def run(self):
         is_file = os.path.exists(self.source)
-        base_interval = 1.0 / self.args.sample_rate
         backoff = 2
         while not self.stop_event.is_set():
             cap = cv2.VideoCapture(self.source)
@@ -86,12 +130,16 @@ class StreamWatcher(threading.Thread):
 
             backoff = 2
             file_fps = (cap.get(cv2.CAP_PROP_FPS) or 25.0) if is_file else None
-            log.info("[%s] watching a %s, keeping %.1f frames per second", self.name_,
-                     "file" if is_file else "live stream", self.args.sample_rate)
+            sampler = FrameSampler(self.args.every, self.args.sample_rate)
+            self._first_reply = True          # a new stream: the ML service opens a new session on its first frame
+            log.info("[%s] watching a %s, %s", self.name_, "file" if is_file else "live stream",
+                     "keeping about %.1f frames per second" % self.args.sample_rate if self.args.sample_rate
+                     else "analysing every %dth frame (frames 0, %d, %d, ...) as in training" % (self.args.every, self.args.every, 2 * self.args.every))
 
             frame_number = 0
             started = time.monotonic()
-            next_due = None                   # the time (in seconds) the next frame must be kept
+            camera_fps = file_fps             # a file's rate is known; a live camera's is measured below
+            meter_start, meter_frames = time.monotonic(), 0
             seen = 0                          # frames the camera delivered since the last report
             sent_mark, dropped_mark = self.sent, self.dropped
             report_mark = time.monotonic()
@@ -118,20 +166,31 @@ class StreamWatcher(threading.Thread):
                     shape_checked = True
                     self._check_shape(frame)
 
-                if next_due is None:
-                    next_due = t
-                if t >= next_due:
-                    # Pace: never faster than the sample rate, and never faster than a frame takes to be analysed.
-                    interval = max(base_interval, PACE_MARGIN * (self.round_trip or 0.0))
-                    next_due += interval
-                    if t - next_due > 2 * interval:
-                        next_due = t + interval   # the stream stalled for a while: do not burst to catch up
+                # A live camera: measure its real frame rate (about once a second), to know how long a gap of N frames is.
+                if not is_file:
+                    meter_frames += 1
+                    elapsed = time.monotonic() - meter_start
+                    if elapsed >= 1.0:
+                        measured = meter_frames / elapsed
+                        camera_fps = measured if camera_fps is None else 0.5 * camera_fps + 0.5 * measured
+                        meter_start, meter_frames = time.monotonic(), 0
 
+                index = frame_number - 1          # 0 for the first frame, like the frame numbers of the training videos
+                if sampler.keep(index, t, camera_fps, self.round_trip):
+                    # Analysis slower than the gap between two every-Nth frames: say so at once, not only in the report.
+                    if sampler.rate is None and not warned_ml:
+                        stride = sampler.stride(camera_fps, self.round_trip)
+                        if stride > self.args.every:
+                            log.warning("[%s] analysing a frame takes %.0f ms, so only every %dth frame can be kept up "
+                                        "(the model was trained on every %dth). Detection works, but on frames further apart "
+                                        "than in training. A faster ML machine removes this.", self.name_,
+                                        self.round_trip * 1000, stride, self.args.every)
+                            warned_ml = True
                     # Never let a slow answer pile frames up: if the last frame is still being sent, skip this one.
                     if self._busy.acquire(blocking=False):
                         jpeg = cv2.imencode(".jpg", frame)[1].tobytes()
                         timestamp = t
-                        threading.Thread(target=self._send, args=(jpeg, frame_number, timestamp, frame), daemon=True).start()
+                        threading.Thread(target=self._send, args=(jpeg, index, timestamp, frame), daemon=True).start()
                     else:
                         self.dropped += 1
 
@@ -139,18 +198,17 @@ class StreamWatcher(threading.Thread):
                 if now - report_mark >= self.args.report_seconds:
                     span = now - report_mark
                     sent_now, dropped_now = self.sent - sent_mark, self.dropped - dropped_mark
-                    camera_fps = seen / span
+                    reported_fps = seen / span
                     log.info("[%s] camera %.1f fps | sent %.1f/s | dropped %d | analysis %.0f ms/frame | alarms so far %d", self.name_,
-                             camera_fps, sent_now / span, dropped_now, (self.round_trip or 0) * 1000, self.alarms)
-                    if self.round_trip and self.round_trip * PACE_MARGIN > base_interval * 1.3 and not warned_ml:
+                             reported_fps, sent_now / span, dropped_now, (self.round_trip or 0) * 1000, self.alarms)
+                    if sampler.rate is not None and self.round_trip and self.round_trip * PACE_MARGIN > 1.3 / sampler.rate and not warned_ml:
                         log.warning("[%s] analysing a frame takes %.0f ms, so only about %.1f frames/s can be kept up "
-                                    "(the model was trained at about %.0f/s). Detection works, but on frames further apart "
-                                    "than in training. A faster ML machine removes this.", self.name_,
-                                    self.round_trip * 1000, 1 / (self.round_trip * PACE_MARGIN), self.args.sample_rate)
+                                    "(you asked for %.1f/s). Detection works, but on frames further apart than asked.", self.name_,
+                                    self.round_trip * 1000, 1 / (self.round_trip * PACE_MARGIN), sampler.rate)
                         warned_ml = True
-                    if camera_fps < self.args.sample_rate * 0.9 and not warned_slow and not is_file:
+                    if sampler.rate is not None and reported_fps < sampler.rate * 0.9 and not warned_slow and not is_file:
                         log.warning("[%s] the camera delivers only %.1f fps, below the sample rate %.1f: every frame is used",
-                                    self.name_, camera_fps, self.args.sample_rate)
+                                    self.name_, reported_fps, sampler.rate)
                         warned_slow = True
                     if dropped_now > 0.2 * (sent_now + dropped_now) and sent_now + dropped_now > 5:
                         log.warning("[%s] %d of %d frames were skipped because the backend or the ML service is too slow",
@@ -188,7 +246,12 @@ class StreamWatcher(threading.Thread):
                 timeout=30,
             )
             took = time.monotonic() - began
-            self.round_trip = took if self.round_trip is None else 0.7 * self.round_trip + 0.3 * took
+            if self._first_reply:
+                # The first frame of a stream makes the ML service open its session and warm up (about 2 s). That is not
+                # how fast it analyses a frame, and counting it made the worker skip ahead by dozens of frames.
+                self._first_reply = False
+            else:
+                self.round_trip = took if self.round_trip is None else 0.7 * self.round_trip + 0.3 * took
             if response.status_code == 200:
                 self.sent += 1
                 result = response.json()
@@ -290,9 +353,12 @@ def main():
     parser.add_argument("--key", default=os.environ.get("WORKER_KEY", ""), help="or set WORKER_KEY")
     parser.add_argument("--source", choices=["media", "camera"], default="media",
                         help="media = read the stream from the media server (default); camera = read the camera directly")
-    parser.add_argument("--sample-rate", type=float, default=5.0,
-                        help="most frames per second to analyse, in real time. The model was trained on about 5 (one in 5 of mostly 25 fps). "
-                             "The worker goes slower by itself when the ML service cannot keep up")
+    parser.add_argument("--every", type=int, default=5,
+                        help="analyse every Nth frame of the stream (frames 0, N, 2N, ...), as the model was trained (default 5). "
+                             "The worker widens the gap by itself when the ML service cannot keep up")
+    parser.add_argument("--sample-rate", type=float, default=None,
+                        help="instead of every Nth frame: analyse about this many frames per SECOND, whatever the camera's frame rate "
+                             "(for example 5 for a 15 fps or 60 fps camera). Chooses frames by time, not by count")
     parser.add_argument("--poll", type=float, default=5.0, help="seconds between asking the backend for jobs")
     parser.add_argument("--report-seconds", type=float, default=30.0, help="how often to print the rate report")
     parser.add_argument("--override", action="append", default=[], metavar="WALLID=SOURCE",
@@ -305,12 +371,15 @@ def main():
 
     if not args.key:
         sys.exit("Set the worker key: WORKER_KEY=... or --key ...")
-    if not 0.5 <= args.sample_rate <= 30:
+    if args.sample_rate is not None and not 0.5 <= args.sample_rate <= 30:
         sys.exit("--sample-rate must be between 0.5 and 30")
+    if not 1 <= args.every <= 60:
+        sys.exit("--every must be between 1 and 60")
     args.overrides = dict(item.split("=", 1) for item in args.override)
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s  %(levelname)-7s %(message)s", datefmt="%H:%M:%S")
-    log.info("Ingest worker started. Backend: %s  Source: %s  Sample rate: %.1f frames/s", args.backend, args.source, args.sample_rate)
+    log.info("Ingest worker started. Backend: %s  Source: %s  Sampling: %s", args.backend, args.source,
+             "about %.1f frames/s (by time)" % args.sample_rate if args.sample_rate else "every %dth frame (by count)" % args.every)
 
     watchers = {}   # wallId -> StreamWatcher
     started = time.time()

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Changed
+- **The ingest worker analyses every 5th frame by counting** (frames 0, 5, 10 ... like the training script), instead of 5 frames per second by time. New option `--every N`; the old time-based choice is `--sample-rate N`. The frame number sent to the backend is now the 0-based frame index. When the ML service is slower than the gap, the worker widens the gap by itself and warns once. The first answer of a stream (ML warm-up) no longer counts towards the speed estimate.
+
 ### Added
 - **Live preview with boxes.** The ingest worker draws a box round every person the model finds on the camera picture (red during the alarm) and sends it to the backend (`worker/post-preview`); apps watch it at `detection/preview` as a picture stream. Only the latest picture per wall is kept in memory. The stream ends by itself when the worker stops. `--no-preview` turns it off in the worker.
 

@@ -32,27 +32,36 @@ Wi-Fi in testing. Set `OPENCV_FFMPEG_CAPTURE_OPTIONS` yourself to change that. T
 | Option | Meaning |
 |---|---|
 | `--source media\|camera` | where to read the video (default `media`) |
-| `--sample-rate 5` | most frames per second to analyse (real time). Default 5 = the training rate; see below |
+| `--every 5` | analyse every Nth frame of the stream: frames 0, N, 2N ... (default 5, as in training); see below |
+| `--sample-rate 5` | instead: analyse about this many frames per **second**, whatever the camera's frame rate (chooses by time, not by count) |
 | `--poll 5` | seconds between asking for jobs |
 | `--backend URL` | default `http://localhost:5078` (or env `BACKEND_URL`) |
 | `--override WALLID=FILE_OR_URL` | test with a video file instead of a camera |
 | `--loop` | restart a test video file when it ends |
 | `--no-preview` | do not send the live preview picture (the camera picture with a box round each person) to the backend |
 
-## Frame rate: how it works for any camera
-- **Sampled by time, not by counting frames.** The worker keeps about **5 frames per second of real time**, whether the
-  camera sends 15, 25, 30 or 60 fps (or a changing rate, like a phone on weak Wi-Fi). A camera slower than 5 fps has every frame used.
-- **Why 5.** The model was trained on one frame in every 5 of the dataset's videos. Measured on the training set
-  (`wall-intrusion-detection/dataset/train`, 703 videos): 65% are 25 fps, 20% are 30 fps, 14% are 24 fps, which is
-  5.0 samples per second for the typical clip (4.8 to 6.0 for the others, 5.2 on average).
+## Which frames are analysed
+- **Every 5th frame, by counting, as in training.** The model was trained on frames 0, 5, 10, ... of every video
+  (`extract_every_5_frames.py`: `np.arange(0, total_frames, 5)`), and the ML service is set the same way (`frame_stride = 5`).
+  The worker keeps exactly those frames of the stream. `--every N` changes the 5.
+- **What that means per second depends on the camera's frame rate.** 25 fps gives 5 analysed frames per second (what most
+  training videos gave), 30 fps gives 6, a 15 fps phone only 3, a 60 fps camera 12. Measured on the training set
+  (`wall-intrusion-detection/dataset/train`, 703 videos): 65% are 25 fps, 20% are 30 fps, 14% are 24 fps.
+- **Want about 5 per second whatever the camera?** Use `--sample-rate 5`. It chooses frames by **time** instead: the same 5 per second
+  for 15, 25, 30 or 60 fps, but the frames are no longer the exact multiples of 5.
+- **The frame number sent to the backend is the 0-based index** of the frame in the stream (0, 5, 10, ...), the same numbering as
+  the training videos. For a live camera the worker measures the camera's real frame rate (about once a second).
 - **The ML service is the limit, not the camera.** In live mode it re-runs its whole 60-frame window through the
   bidirectional LSTM on every frame. Measured on the development Mac it handles about 5.6 frames/s at first and only about
-  2 to 2.5 frames/s once the window is full. So the worker measures the time per frame and **paces itself**: even spacing at
-  the fastest rate that can be kept up, never above `--sample-rate`. It prints `analysis NNN ms/frame` in its report and a
-  warning when the achievable rate is below the trained one (the model then sees frames further apart than in training).
+  2 to 2.5 frames/s once the window is full (GPU copy; the CPU copy is faster, see `ml-service/`). So the worker measures the time
+  per frame and, when that is longer than the gap between two every-5th frames, **widens the gap** (every 6th, 7th ... frame) so
+  analyses never pile up. It prints a warning the first time it has to (the model then sees frames further apart than in training)
+  and `analysis NNN ms/frame` in its report. The very first answer of a stream is not counted: the ML service opens its session
+  and warms up then (about 2 s), which is not its normal speed.
 - **More walls = less speed each.** One ML process serves every wall, so the per-wall rate drops as walls are added.
 - If a frame is still being analysed when the next is due, the new one is skipped (counted as `dropped`) instead of queuing.
-- The first report line of a run includes the start-up phase (the first frames are fast); read the later lines.
+- A stream that cannot be opened (for example a camera that is off) blocks the other walls' streams from opening for up to 10 s,
+  because OpenCV opens one stream at a time. They start as soon as it gives up.
 
 ## The live preview
 For every frame it analyses, the worker also draws the people on a copy of the picture (a box round each person: orange, **red**
